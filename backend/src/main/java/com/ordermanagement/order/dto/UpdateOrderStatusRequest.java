@@ -1,0 +1,15 @@
+package com.ordermanagement.order.dto;
+
+import com.ordermanagement.order.entity.OrderStatus;
+import jakarta.validation.constraints.NotNull;
+import lombok.Data;
+
+@Data
+public class UpdateOrderStatusRequest {
+
+    @NotNull(message = "Status is required")
+    private OrderStatus status;
+
+    /** Optional note explaining the transition (e.g. "Dispatched via BlueDart"). */
+    private String note;
+}
