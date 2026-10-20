@@ -102,6 +102,22 @@ public class Order extends BaseEntity {
     @Column(name = "expires_at")
     private LocalDateTime expiresAt;
 
+    /** Estimated date of dispatch (e.g. today + 1 day) */
+    @Column(name = "estimated_ship_date")
+    private java.time.LocalDate estimatedShipDate;
+
+    /** Estimated date of delivery (e.g. today + 4 days, or admin override) */
+    @Column(name = "estimated_delivery_date")
+    private java.time.LocalDate estimatedDeliveryDate;
+
+    /** Exact timestamp when order was marked SHIPPED */
+    @Column(name = "shipped_at")
+    private LocalDateTime shippedAt;
+
+    /** Exact timestamp when order was marked DELIVERED */
+    @Column(name = "delivered_at")
+    private LocalDateTime deliveredAt;
+
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL,
                orphanRemoval = true, fetch = FetchType.LAZY)
     @Builder.Default

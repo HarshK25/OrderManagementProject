@@ -12,4 +12,7 @@ public class UpdateOrderStatusRequest {
 
     /** Optional note explaining the transition (e.g. "Dispatched via BlueDart"). */
     private String note;
+
+    /** Optional estimated delivery date set or updated by admin */
+    private java.time.LocalDate estimatedDeliveryDate;
 }

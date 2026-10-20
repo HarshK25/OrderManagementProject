@@ -1,6 +1,7 @@
 package com.ordermanagement.order.service;
 
 import com.ordermanagement.config.RabbitMQConfig;
+import com.ordermanagement.notification.service.OrderEventMessage;
 import com.ordermanagement.order.entity.Order;
 import com.ordermanagement.order.entity.OrderStatus;
 import com.ordermanagement.order.repository.OrderRepository;
@@ -12,6 +13,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
 import org.springframework.amqp.support.AmqpHeaders;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.messaging.handler.annotation.Header;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -40,6 +42,7 @@ public class OrderExpiryConsumer {
     private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
     private final EntityManager entityManager;
+    private final ApplicationEventPublisher eventPublisher;
 
     @RabbitListener(queues = RabbitMQConfig.EXPIRY_PROCESS_QUEUE,
                     containerFactory = "rabbitListenerContainerFactory")
@@ -96,5 +99,13 @@ public class OrderExpiryConsumer {
 
         orderRepository.save(order);
         log.info("Order {} expired and stock restored", order.getOrderNumber());
+
+        // Publish cancellation event — delay queue found order still PENDING_PAYMENT
+        // (i.e. payment never arrived), so we treat it as a cancellation for
+        // the customer: they receive an "Order Cancelled" email.
+        eventPublisher.publishEvent(new OrderEventMessage(
+                "order.cancelled", order.getId(), order.getOrderNumber(),
+                order.getUser().getEmail(), order.getUser().getName(), order.getTotal()
+        ));
     }
 }

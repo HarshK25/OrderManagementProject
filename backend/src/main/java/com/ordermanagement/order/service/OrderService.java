@@ -20,6 +20,8 @@ import com.ordermanagement.product.repository.ProductRepository;
 import com.ordermanagement.user.entity.User;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import com.ordermanagement.notification.service.OrderEventMessage;
+import com.ordermanagement.payment.repository.PaymentRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -27,6 +29,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -73,6 +76,7 @@ public class OrderService {
     private final CartService cartService;
     private final AppProperties appProperties;
     private final ApplicationEventPublisher eventPublisher;
+    private final PaymentRepository paymentRepository;
 
     // ── Customer: place order ─────────────────────────────────────────
 
@@ -151,6 +155,8 @@ public class OrderService {
                 .shippingState(request.getShippingState())
                 .shippingPincode(request.getShippingPincode())
                 .expiresAt(LocalDateTime.now().plusMinutes(appProperties.getPayment().getWindowMinutes()))
+                .estimatedShipDate(LocalDate.now().plusDays(1))
+                .estimatedDeliveryDate(LocalDate.now().plusDays(4))
                 .build();
 
         // Link items to order (bidirectional)
@@ -183,7 +189,10 @@ public class OrderService {
         //    to the expiry consumer.
         eventPublisher.publishEvent(new OrderPlacedEvent(saved.getId()));
 
-        // 6. Return with detail (includes items + history)
+        // NOTE: No order.placed email is sent here.
+        // Email is sent only after successful payment via order.paid event in PaymentService.
+
+        // 7. Return with detail (includes items + history)
         return OrderResponse.detail(saved);
     }
 
@@ -219,6 +228,13 @@ public class OrderService {
         orderRepository.save(order);
 
         log.info("Order {} cancelled by {}", order.getOrderNumber(), user.getEmail());
+
+        // Publish cancellation event for email notification
+        eventPublisher.publishEvent(new OrderEventMessage(
+                "order.cancelled", order.getId(), order.getOrderNumber(),
+                order.getUser().getEmail(), order.getUser().getName(), order.getTotal()
+        ));
+
         return OrderResponse.detail(order);
     }
 
@@ -254,6 +270,16 @@ public class OrderService {
 
         order.transitionTo(request.getStatus(), request.getNote(), adminEmail);
 
+        // Update shipping & delivery timestamps and estimates
+        if (request.getStatus() == OrderStatus.SHIPPED) {
+            order.setShippedAt(LocalDateTime.now());
+            if (request.getEstimatedDeliveryDate() != null) {
+                order.setEstimatedDeliveryDate(request.getEstimatedDeliveryDate());
+            }
+        } else if (request.getStatus() == OrderStatus.DELIVERED) {
+            order.setDeliveredAt(LocalDateTime.now());
+        }
+
         // Restore stock on admin-triggered cancellation
         if (request.getStatus() == OrderStatus.CANCELLED
                 || request.getStatus() == OrderStatus.EXPIRED) {
@@ -263,7 +289,49 @@ public class OrderService {
         orderRepository.save(order);
         log.info("Order {} → {} by admin {}", order.getOrderNumber(),
                 request.getStatus(), adminEmail);
+
+        // Publish notification event for email
+        String routingKey = switch (request.getStatus()) {
+            case SHIPPED   -> "order.shipped";
+            case DELIVERED -> "order.delivered";
+            case CANCELLED -> "order.cancelled";
+            default        -> null;
+        };
+        if (routingKey != null) {
+            eventPublisher.publishEvent(new OrderEventMessage(
+                    routingKey, order.getId(), order.getOrderNumber(),
+                    order.getUser().getEmail(), order.getUser().getName(), order.getTotal()
+            ));
+        }
+
         return OrderResponse.detail(order);
+    }
+
+    // ── Admin: delete order ───────────────────────────────────────────
+
+    /**
+     * Permanently deletes an order.
+     * If the order is still PENDING_PAYMENT or PAID (stock was reserved),
+     * stock is restored before deletion so inventory stays consistent.
+     */
+    @Transactional
+    public void deleteOrder(Long orderId) {
+        Order order = orderRepository.findByIdWithDetails(orderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
+
+        // Restore stock for active orders (stock was decremented on placement)
+        if (order.getStatus() == OrderStatus.PENDING_PAYMENT
+                || order.getStatus() == OrderStatus.PAID
+                || order.getStatus() == OrderStatus.SHIPPED) {
+            restoreStock(order);
+            log.info("Stock restored for deleted order {}", order.getOrderNumber());
+        }
+
+        // Delete payment records first to satisfy FK constraint (payments.order_id → orders.id)
+        paymentRepository.deleteByOrder(order);
+
+        orderRepository.delete(order);
+        log.info("Order {} deleted by admin", order.getOrderNumber());
     }
 
     // ── Helpers ───────────────────────────────────────────────────────

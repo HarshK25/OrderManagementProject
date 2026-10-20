@@ -104,4 +104,11 @@ public class OrderController {
                                       @AuthenticationPrincipal User admin) {
         return orderService.updateOrderStatus(id, request, admin.getEmail());
     }
+
+    @DeleteMapping("/api/admin/orders/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    @Operation(summary = "Permanently delete an order and restore stock if needed (admin)")
+    public void deleteOrder(@PathVariable Long id) {
+        orderService.deleteOrder(id);
+    }
 }

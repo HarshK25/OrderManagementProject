@@ -41,6 +41,18 @@ public class OrderResponse {
     private LocalDateTime expiresAt;
     private LocalDateTime createdAt;
 
+    /** Estimated dispatch date (e.g. order date + 1 day) */
+    private java.time.LocalDate estimatedShipDate;
+
+    /** Estimated delivery date (e.g. order date + 4 days, or admin override) */
+    private java.time.LocalDate estimatedDeliveryDate;
+
+    /** Exact timestamp when order was shipped */
+    private LocalDateTime shippedAt;
+
+    /** Exact timestamp when order was delivered */
+    private LocalDateTime deliveredAt;
+
     /** Full audit trail — included in detail views, null in list views. */
     private List<OrderStatusHistoryResponse> statusHistory;
 
@@ -58,6 +70,10 @@ public class OrderResponse {
                 .shippingState(o.getShippingState())
                 .expiresAt(o.getExpiresAt())
                 .createdAt(o.getCreatedAt())
+                .estimatedShipDate(o.getEstimatedShipDate())
+                .estimatedDeliveryDate(o.getEstimatedDeliveryDate())
+                .shippedAt(o.getShippedAt())
+                .deliveredAt(o.getDeliveredAt())
                 .build();
     }
 
@@ -84,6 +100,10 @@ public class OrderResponse {
                 .shippingPincode(o.getShippingPincode())
                 .expiresAt(o.getExpiresAt())
                 .createdAt(o.getCreatedAt())
+                .estimatedShipDate(o.getEstimatedShipDate())
+                .estimatedDeliveryDate(o.getEstimatedDeliveryDate())
+                .shippedAt(o.getShippedAt())
+                .deliveredAt(o.getDeliveredAt())
                 .statusHistory(history)
                 .build();
     }

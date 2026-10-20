@@ -1,5 +1,6 @@
 package com.ordermanagement.payment.repository;
 
+import com.ordermanagement.order.entity.Order;
 import com.ordermanagement.payment.entity.Payment;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
@@ -14,4 +15,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     /** Find the pending payment created by POST /api/payments/create/{orderId}. */
     Optional<Payment> findByRazorpayOrderId(String razorpayOrderId);
+
+    /** Delete all payment records for an order (called before order deletion to satisfy FK). */
+    void deleteByOrder(Order order);
 }

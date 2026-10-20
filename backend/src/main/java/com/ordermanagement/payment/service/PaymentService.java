@@ -184,8 +184,10 @@ public class PaymentService {
                 request.razorpayPaymentId());
 
         // 9. Publish notification event AFTER COMMIT
+        //    Use "order.placed" routing key so the customer receives the
+        //    "Order Placed" confirmation email only after backend verifies payment.
         eventPublisher.publishEvent(new com.ordermanagement.notification.service.OrderEventMessage(
-                "order.paid", order.getId(), order.getOrderNumber(),
+                "order.placed", order.getId(), order.getOrderNumber(),
                 order.getUser().getEmail(), order.getUser().getName(), order.getTotal()
         ));
 

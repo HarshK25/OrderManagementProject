@@ -185,6 +185,10 @@ public class AuthService {
                 .accessToken(accessToken)
                 .refreshToken(rawRefresh)
                 .tokenType("Bearer")
+                .userId(user.getId())
+                .name(user.getName())
+                .email(user.getEmail())
+                .role(user.getRole().name())
                 .build();
     }
 

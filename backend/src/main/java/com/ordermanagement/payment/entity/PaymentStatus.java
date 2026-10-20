@@ -6,7 +6,7 @@ package com.ordermanagement.payment.entity;
  * moves to SUCCESS after signature verification, or FAILED on error.
  */
 public enum PaymentStatus {
-    CREATED,
-    SUCCESS,
-    FAILED
+    INITIATED,  // Razorpay order created, awaiting user payment
+    SUCCESS,    // Signature verified, order marked PAID
+    FAILED      // Verification failed or order expired
 }
