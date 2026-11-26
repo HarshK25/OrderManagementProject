@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Navbar from './components/Navbar'
+import ChatWidget from './components/ChatWidget'
 import { ProtectedRoute, AdminRoute } from './routes/ProtectedRoute'
 
 // Public pages
@@ -24,6 +25,7 @@ export default function App() {
   return (
     <>
       <Navbar />
+      <ChatWidget />
       <Routes>
         {/* Public */}
         <Route path="/" element={<Navigate to="/products" replace />} />

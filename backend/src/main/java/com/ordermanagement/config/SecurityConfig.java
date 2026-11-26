@@ -94,6 +94,9 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/products/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/categories/**").permitAll()
 
+                // Public chatbot — no login required
+                .requestMatchers("/api/chat/**").permitAll()
+
                 // Developer test endpoints (only visible in dev profile anyway)
                 .requestMatchers("/api/test/**").permitAll()
 
