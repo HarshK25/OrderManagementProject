@@ -26,6 +26,12 @@ export default function AdminProductsPage() {
   const [saving, setSaving]       = useState(false)
   const [formError, setFormError] = useState('')
 
+  // ✨ AI description generation
+  const [aiGenerating, setAiGenerating] = useState(false)
+  const [aiError, setAiError]           = useState('')
+  const [aiKeywords, setAiKeywords]     = useState('')
+  const [showAiPanel, setShowAiPanel]   = useState(false)
+
   // Stock adjust
   const [stockProductId, setStockProductId] = useState(null)
   const [stockDelta, setStockDelta]         = useState(0)
@@ -53,6 +59,9 @@ export default function AdminProductsPage() {
     setEditing(null)
     setForm(EMPTY_PRODUCT)
     setFormError('')
+    setAiError('')
+    setAiKeywords('')
+    setShowAiPanel(false)
     setShowForm(true)
   }
 
@@ -65,7 +74,40 @@ export default function AdminProductsPage() {
       stock: p.stock, imageUrl: p.imageUrl || '', active: p.active,
     })
     setFormError('')
+    setAiError('')
+    setAiKeywords('')
+    setShowAiPanel(false)
     setShowForm(true)
+  }
+
+  // ── ✨ AI description generator ─────────────────────────────────────────
+  const handleGenerateDescription = async () => {
+    if (!form.name.trim()) {
+      setAiError('Please enter a product name first.')
+      return
+    }
+    if (!form.price || parseFloat(form.price) <= 0) {
+      setAiError('Please enter a valid price first.')
+      return
+    }
+    setAiGenerating(true)
+    setAiError('')
+    try {
+      const categoryName = categories.find(c => String(c.id) === String(form.categoryId))?.name || ''
+      const { data } = await api.post('/admin/ai/generate-description', {
+        name:            form.name.trim(),
+        category:        categoryName,
+        price:           parseFloat(form.price),
+        discountPercent: parseInt(form.discountPercent) || 0,
+        keywords:        aiKeywords.trim() || null,
+      })
+      setForm(f => ({ ...f, description: data.description }))
+      setShowAiPanel(false)
+    } catch (err) {
+      setAiError(err.response?.data?.message || 'AI generation failed. Check your Gemini API key.')
+    } finally {
+      setAiGenerating(false)
+    }
   }
 
   const handleSave = async (e) => {
@@ -176,17 +218,15 @@ export default function AdminProductsPage() {
             <h3 style={{ marginBottom: '1.5rem' }}>{editing ? 'Edit Product' : 'New Product'}</h3>
             {formError && <div className="alert alert-error">{formError}</div>}
             <form onSubmit={handleSave}>
-              {[['name','Name',true],['description','Description',false],['imageUrl','Image URL',false]].map(([field, label, required]) => (
-                <div className="form-group" key={field}>
-                  <label>{label}</label>
-                  <input
-                    className="input"
-                    value={form[field]}
-                    onChange={e => setForm(f => ({ ...f, [field]: e.target.value }))}
-                    required={required}
-                  />
-                </div>
-              ))}
+
+              {/* Name */}
+              <div className="form-group">
+                <label>Name</label>
+                <input className="input" value={form.name}
+                  onChange={e => setForm(f => ({ ...f, name: e.target.value }))} required />
+              </div>
+
+              {/* Category — must come before description so AI can read it */}
               <div className="form-group">
                 <label>Category</label>
                 <select className="select" value={form.categoryId}
@@ -194,6 +234,81 @@ export default function AdminProductsPage() {
                   <option value="">-- Select --</option>
                   {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </select>
+              </div>
+
+              {/* Description with ✨ AI Generate */}
+              <div className="form-group">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '.4rem' }}>
+                  <label style={{ margin: 0 }}>Description</label>
+                  <button
+                    type="button"
+                    className="btn btn-secondary btn-sm"
+                    style={{ fontSize: '.78rem', padding: '.25rem .7rem', display: 'flex', alignItems: 'center', gap: '.3rem' }}
+                    onClick={() => { setShowAiPanel(p => !p); setAiError('') }}
+                  >
+                    ✨ AI Generate
+                  </button>
+                </div>
+
+                {/* AI Panel — shown when button is toggled */}
+                {showAiPanel && (
+                  <div style={{
+                    background: 'var(--surface-2)', border: '1px solid var(--border)',
+                    borderRadius: '8px', padding: '1rem', marginBottom: '.75rem',
+                  }}>
+                    <p style={{ margin: '0 0 .6rem', fontSize: '.82rem', color: 'var(--text-muted)', fontWeight: 600 }}>
+                      ✨ Gemini AI — Uses product name, category & price automatically
+                    </p>
+                    <div className="form-group" style={{ marginBottom: '.5rem' }}>
+                      <label style={{ fontSize: '.82rem' }}>
+                        Extra keywords <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span>
+                      </label>
+                      <input
+                        className="input"
+                        placeholder="e.g. lightweight, waterproof, long battery life"
+                        value={aiKeywords}
+                        onChange={e => setAiKeywords(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), handleGenerateDescription())}
+                        style={{ fontSize: '.85rem' }}
+                      />
+                    </div>
+                    {aiError && (
+                      <div className="alert alert-error" style={{ padding: '.4rem .75rem', fontSize: '.82rem', marginBottom: '.5rem' }}>
+                        {aiError}
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      style={{ width: '100%' }}
+                      onClick={handleGenerateDescription}
+                      disabled={aiGenerating}
+                    >
+                      {aiGenerating
+                        ? <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '.5rem' }}>
+                            <span className="spinner" style={{ width: '14px', height: '14px', borderWidth: '2px' }} />
+                            Generating with Gemini...
+                          </span>
+                        : '✨ Generate Description'}
+                    </button>
+                  </div>
+                )}
+
+                <textarea
+                  className="input"
+                  value={form.description}
+                  onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+                  rows={4}
+                  style={{ resize: 'vertical' }}
+                  placeholder="Enter description manually or use ✨ AI Generate above"
+                />
+              </div>
+
+              {/* Image URL */}
+              <div className="form-group">
+                <label>Image URL</label>
+                <input className="input" value={form.imageUrl}
+                  onChange={e => setForm(f => ({ ...f, imageUrl: e.target.value }))} />
               </div>
               <div className="grid-2">
                 <div className="form-group">

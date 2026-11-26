@@ -22,6 +22,7 @@ public class AppProperties {
     private Razorpay razorpay = new Razorpay();
     private Admin admin = new Admin();
     private Cors cors = new Cors();
+    private Groq groq = new Groq();
 
     @Getter @Setter
     public static class Jwt {
@@ -51,5 +52,13 @@ public class AppProperties {
     @Getter @Setter
     public static class Cors {
         private List<String> allowedOrigins = List.of("http://localhost:5173");
+    }
+
+    @Getter @Setter
+    public static class Groq {
+        private String apiKey;
+        private String model = "llama-3.3-70b-versatile";
+        private int maxTokens = 300;
+        private double temperature = 0.7;
     }
 }

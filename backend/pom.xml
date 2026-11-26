@@ -137,6 +137,12 @@
             <artifactId>jackson-datatype-jsr310</artifactId>
         </dependency>
 
+        <!-- ── Gemini AI (via Spring WebFlux HTTP client) ── -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-webflux</artifactId>
+        </dependency>
+
         <!-- ── Razorpay Java SDK ─────────────────────────── -->
         <dependency>
             <groupId>com.razorpay</groupId>
