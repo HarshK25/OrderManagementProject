@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 
 const ADMIN_LINKS = [
-  { to: '/admin/products', label: '📦 Products' },
-  { to: '/admin/orders',   label: '🧾 Orders'   },
-  { to: '/admin/users',    label: '👥 Users'    },
+  { to: '/admin/products', label: '\u{1F4E6} Products' },
+  { to: '/admin/orders',   label: '\u{1F9FE} Orders'   },
+  { to: '/admin/returns',  label: '\u{21A9}\u{FE0F} Returns'  },
+  { to: '/admin/users',    label: '\u{1F465} Users'    },
 ]
 
 export default function AdminLayout({ children, title }) {
@@ -20,7 +21,7 @@ export default function AdminLayout({ children, title }) {
         display: 'flex', flexDirection: 'column', gap: '.5rem',
       }}>
         <div style={{ fontWeight: 800, fontSize: '1rem', marginBottom: '1rem', color: 'var(--primary)' }}>
-          ⚙️ Admin Panel
+          &#9881;&#65039; Admin Panel
         </div>
         {ADMIN_LINKS.map(link => (
           <Link

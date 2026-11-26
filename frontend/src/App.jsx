@@ -20,6 +20,7 @@ import OrderTrackingPage from './pages/OrderTrackingPage'
 import AdminProductsPage from './pages/admin/AdminProductsPage'
 import AdminOrdersPage from './pages/admin/AdminOrdersPage'
 import AdminUsersPage from './pages/admin/AdminUsersPage'
+import AdminReturnsPage from './pages/admin/AdminReturnsPage'
 
 export default function App() {
   return (
@@ -45,6 +46,7 @@ export default function App() {
         <Route path="/admin" element={<AdminRoute><Navigate to="/admin/products" replace /></AdminRoute>} />
         <Route path="/admin/products" element={<AdminRoute><AdminProductsPage /></AdminRoute>} />
         <Route path="/admin/orders" element={<AdminRoute><AdminOrdersPage /></AdminRoute>} />
+        <Route path="/admin/returns" element={<AdminRoute><AdminReturnsPage /></AdminRoute>} />
         <Route path="/admin/users" element={<AdminRoute><AdminUsersPage /></AdminRoute>} />
 
         {/* Fallback */}

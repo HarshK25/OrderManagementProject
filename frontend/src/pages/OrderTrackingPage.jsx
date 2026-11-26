@@ -3,12 +3,17 @@ import { useParams, useNavigate } from 'react-router-dom'
 import api from '../api/axiosInstance'
 
 const STATUS_BADGE = {
-  PENDING_PAYMENT: 'badge-pending',
-  PAID:            'badge-paid',
-  SHIPPED:         'badge-shipped',
-  DELIVERED:       'badge-delivered',
-  CANCELLED:       'badge-cancelled',
-  EXPIRED:         'badge-expired',
+  PENDING_PAYMENT:  'badge-pending',
+  PAID:             'badge-paid',
+  SHIPPED:          'badge-shipped',
+  DELIVERED:        'badge-delivered',
+  CANCELLED:        'badge-cancelled',
+  EXPIRED:          'badge-expired',
+  RETURN_REQUESTED: 'badge-pending',
+  RETURN_APPROVED:  'badge-paid',
+  RETURN_REJECTED:  'badge-cancelled',
+  PICKUP_COMPLETED: 'badge-shipped',
+  REFUNDED:         'badge-delivered',
 }
 
 function formatINR(amount) {
@@ -40,12 +45,17 @@ function formatDateOnly(dt) {
 
 /** Human-readable label + icon for each order status */
 const STATUS_LABELS = {
-  PENDING_PAYMENT: { label: 'Order Placed',   icon: '🛒' },
-  PAID:            { label: 'Payment Done',    icon: '✅' },
-  SHIPPED:         { label: 'Shipped',         icon: '🚚' },
-  DELIVERED:       { label: 'Delivered',       icon: '📦' },
-  CANCELLED:       { label: 'Cancelled',       icon: '❌' },
-  EXPIRED:         { label: 'Expired',         icon: '⏰' },
+  PENDING_PAYMENT:  { label: 'Order Placed',       icon: '🛒' },
+  PAID:             { label: 'Payment Done',        icon: '✅' },
+  SHIPPED:          { label: 'Shipped',             icon: '🚚' },
+  DELIVERED:        { label: 'Delivered',           icon: '📦' },
+  CANCELLED:        { label: 'Cancelled',           icon: '❌' },
+  EXPIRED:          { label: 'Expired',             icon: '⏰' },
+  RETURN_REQUESTED: { label: 'Return Requested',    icon: '↩️' },
+  RETURN_APPROVED:  { label: 'Return Approved',     icon: '✅' },
+  RETURN_REJECTED:  { label: 'Return Rejected',     icon: '❌' },
+  PICKUP_COMPLETED: { label: 'Pickup Completed',    icon: '🏠' },
+  REFUNDED:         { label: 'Refunded',            icon: '💰' },
 }
 
 /** Live countdown until expiresAt — returns "MM:SS" or null if not applicable. */
@@ -81,6 +91,14 @@ export default function OrderTrackingPage() {
   const [error, setError]     = useState('')
   const [cancelling, setCancelling] = useState(false)
 
+  // Return request modal state
+  const [showReturnModal, setShowReturnModal] = useState(false)
+  const [returnReason, setReturnReason]       = useState('')
+  const [returnCondition, setReturnCondition] = useState('UNOPENED')
+  const [returnSubmitting, setReturnSubmitting] = useState(false)
+  const [returnError, setReturnError]         = useState('')
+  const [returnInfo, setReturnInfo]           = useState(null)   // existing return data
+
   const fetchOrder = useCallback(() => {
     api.get(`/orders/${id}`)
       .then(({ data }) => setOrder(data))
@@ -89,6 +107,16 @@ export default function OrderTrackingPage() {
   }, [id])
 
   useEffect(() => { fetchOrder() }, [fetchOrder])
+
+  // Fetch return info if order is in return workflow
+  useEffect(() => {
+    const returnStatuses = ['RETURN_REQUESTED', 'RETURN_APPROVED', 'RETURN_REJECTED', 'PICKUP_COMPLETED', 'REFUNDED']
+    if (order && returnStatuses.includes(order.status)) {
+      api.get(`/orders/${id}/return`)
+        .then(({ data }) => setReturnInfo(data))
+        .catch(() => {})
+    }
+  }, [order, id])
 
   const countdown = useCountdown(
     order?.status === 'PENDING_PAYMENT' ? order.expiresAt : null
@@ -113,6 +141,38 @@ export default function OrderTrackingPage() {
     })
   }
 
+  // ── Return request handler ───────────────────────────────────────────────
+  const handleReturnSubmit = async () => {
+    if (!returnReason.trim() || returnReason.trim().length < 10) {
+      setReturnError('Please describe the reason in at least 10 characters.')
+      return
+    }
+    setReturnSubmitting(true)
+    setReturnError('')
+    try {
+      await api.post(`/orders/${id}/return`, {
+        reason: returnReason.trim(),
+        itemCondition: returnCondition,
+      })
+      setShowReturnModal(false)
+      setReturnReason('')
+      fetchOrder()
+    } catch (err) {
+      setReturnError(err.response?.data?.message || 'Failed to submit return request')
+    } finally {
+      setReturnSubmitting(false)
+    }
+  }
+
+  // ── 7-day return window check ────────────────────────────────────────────
+  const withinReturnWindow = () => {
+    if (!order?.deliveredAt) return false
+    const deliveredAt = new Date(order.deliveredAt)
+    const now = new Date()
+    const diffDays = (now - deliveredAt) / (1000 * 60 * 60 * 24)
+    return diffDays <= 7
+  }
+
   if (loading) return <div className="loading-center"><div className="spinner" /></div>
   if (error)   return <div className="page-container"><div className="alert alert-error">{error}</div></div>
   if (!order)  return null
@@ -123,6 +183,10 @@ export default function OrderTrackingPage() {
   const isShipped = order.status === 'SHIPPED' || order.status === 'DELIVERED'
   const isDelivered = order.status === 'DELIVERED'
   const isTerminated = order.status === 'CANCELLED' || order.status === 'EXPIRED'
+
+  const returnStatuses = ['RETURN_REQUESTED', 'RETURN_APPROVED', 'RETURN_REJECTED', 'PICKUP_COMPLETED', 'REFUNDED']
+  const inReturnFlow   = returnStatuses.includes(order.status)
+  const canReturn      = order.status === 'DELIVERED' && withinReturnWindow()
 
   return (
     <div className="page-container">
@@ -323,8 +387,148 @@ export default function OrderTrackingPage() {
               </p>
             </div>
           )}
+
+          {/* Return Request button — shown for DELIVERED orders within 7 days */}
+          {canReturn && (
+            <div className="card">
+              <h3 style={{ marginBottom: '.5rem' }}>Return & Refund</h3>
+              <p style={{ fontSize: '.85rem', color: 'var(--text-muted)', marginBottom: '1rem' }}>
+                Not happy with your order? Request a return within 7 days of delivery.
+              </p>
+              <button
+                className="btn btn-secondary w-full"
+                onClick={() => { setShowReturnModal(true); setReturnError('') }}
+              >
+                ↩️ Request Return
+              </button>
+            </div>
+          )}
+
+          {/* Return status panel — shown when already in return workflow */}
+          {inReturnFlow && returnInfo && (
+            <div className="card" style={{
+              border: '2px solid',
+              borderColor: order.status === 'REFUNDED' ? '#8b5cf6' :
+                           order.status === 'RETURN_REJECTED' ? '#ef4444' : '#f59e0b'
+            }}>
+              <h3 style={{ marginBottom: '1rem' }}>↩️ Return Status</h3>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '.6rem', fontSize: '.9rem' }}>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>Status: </span>
+                  <strong>{order.status.replace(/_/g, ' ')}</strong>
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>Reason: </span>
+                  {returnInfo.reason}
+                </div>
+                <div>
+                  <span style={{ color: 'var(--text-muted)' }}>Condition: </span>
+                  {returnInfo.itemCondition?.replace('_', ' ')}
+                </div>
+                {returnInfo.adminNote && (
+                  <div>
+                    <span style={{ color: 'var(--text-muted)' }}>Admin Note: </span>
+                    {returnInfo.adminNote}
+                  </div>
+                )}
+                {returnInfo.razorpayRefundId && (
+                  <div style={{ background: '#ede9fe', borderRadius: 8, padding: '.75rem', marginTop: '.5rem' }}>
+                    <div style={{ color: '#5b21b6', fontWeight: 700 }}>💰 Refund Initiated</div>
+                    <div style={{ fontSize: '.8rem', marginTop: '.25rem' }}>
+                      Refund ID: <code>{returnInfo.razorpayRefundId}</code>
+                    </div>
+                    {returnInfo.refundAmount && (
+                      <div style={{ fontSize: '.8rem' }}>
+                        Amount: ₹{Number(returnInfo.refundAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                      </div>
+                    )}
+                    <div style={{ fontSize: '.75rem', color: '#6d28d9', marginTop: '.25rem' }}>
+                      Reflects in your account within 5-7 business days
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       </div>
+
+      {/* ── Return Request Modal ───────────────────────────────────────────── */}
+      {showReturnModal && (
+        <div style={{
+          position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 999,
+        }}>
+          <div className="card" style={{ width: '100%', maxWidth: 480, maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="flex-between" style={{ marginBottom: '1.25rem' }}>
+              <h2 style={{ margin: 0 }}>↩️ Request Return</h2>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowReturnModal(false)}>✕</button>
+            </div>
+
+            <div style={{ marginBottom: '1rem', background: 'var(--surface-2)', borderRadius: 8, padding: '1rem', fontSize: '.9rem' }}>
+              <strong>Order:</strong> {order.orderNumber}<br />
+              <strong>Return window closes:</strong>{' '}
+              {order.deliveredAt
+                ? new Date(new Date(order.deliveredAt).getTime() + 7 * 24 * 60 * 60 * 1000)
+                    .toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: '2-digit', month: 'short', year: 'numeric' })
+                : '7 days from delivery'}
+            </div>
+
+            <div style={{ marginBottom: '1rem' }}>
+              <label style={{ fontWeight: 600, display: 'block', marginBottom: '.5rem' }}>
+                Reason for Return <span style={{ color: 'red' }}>*</span>
+              </label>
+              <textarea
+                className="form-input"
+                rows={4}
+                value={returnReason}
+                onChange={e => setReturnReason(e.target.value)}
+                placeholder="Please describe why you want to return this order (min 10 characters)..."
+                style={{ width: '100%', resize: 'vertical' }}
+              />
+              <div style={{ fontSize: '.75rem', color: 'var(--text-muted)', marginTop: '.25rem' }}>
+                {returnReason.length} / 1000 characters (minimum 10)
+              </div>
+            </div>
+
+            <div style={{ marginBottom: '1.5rem' }}>
+              <label style={{ fontWeight: 600, display: 'block', marginBottom: '.5rem' }}>
+                Item Condition <span style={{ color: 'red' }}>*</span>
+              </label>
+              <select
+                className="form-input"
+                value={returnCondition}
+                onChange={e => setReturnCondition(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <option value="UNOPENED">Unopened / Unused</option>
+                <option value="DAMAGED">Damaged / Defective</option>
+                <option value="WRONG_ITEM">Wrong Item Received</option>
+                <option value="OTHER">Other</option>
+              </select>
+            </div>
+
+            <div className="alert" style={{ background: '#fef3c7', border: '1px solid #fcd34d', borderRadius: 8, padding: '.75rem', marginBottom: '1rem', fontSize: '.85rem' }}>
+              ⚠️ Once approved, our team will arrange a pickup. Refund will be processed after the item is picked up. No stock deduction occurs.
+            </div>
+
+            {returnError && <div className="alert alert-error" style={{ marginBottom: '1rem' }}>{returnError}</div>}
+
+            <div style={{ display: 'flex', gap: '1rem' }}>
+              <button
+                className="btn btn-primary w-full"
+                onClick={handleReturnSubmit}
+                disabled={returnSubmitting || returnReason.trim().length < 10}
+              >
+                {returnSubmitting ? 'Submitting...' : 'Submit Return Request'}
+              </button>
+              <button className="btn btn-secondary w-full" onClick={() => setShowReturnModal(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

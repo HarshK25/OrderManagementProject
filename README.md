@@ -70,15 +70,32 @@ Spring Boot API (port 8080)
 - No login required — available to all visitors
 - Endpoint: `POST /api/chat/message` (public)
 
+#### 3. ↩️ Return & Refund Workflow
+- **Customer:** Requests return from the Order Tracking page (within **7 days** of delivery)
+- **Customer** selects item condition: Unopened / Damaged / Wrong Item / Other
+- **Admin:** Reviews at `/admin/returns` — Approve or Reject with note → email sent to customer
+- **Admin:** Marks pickup as completed → triggers **Razorpay refund API** → email sent to customer
+- Refund reflects in customer account within **5–7 business days**
+- Business rules: 1 return per order max, only DELIVERED orders, within 7-day window
+- State flow: `DELIVERED → RETURN_REQUESTED → RETURN_APPROVED → PICKUP_COMPLETED → REFUNDED`
+
 ---
 
 ## Order State Machine
 
 ```
 PENDING_PAYMENT ──► PAID ──► SHIPPED ──► DELIVERED
-       │              │
-       ├──► CANCELLED ◄┘  (customer or admin; stock restored)
-       └──► EXPIRED        (payment window elapsed; stock restored)
+       │              │                      │
+       ├──► CANCELLED ◄┘  (stock restored)   │
+       └──► EXPIRED        (stock restored)  │
+                                             │
+                                    RETURN_REQUESTED
+                                     /            \
+                              RETURN_APPROVED  RETURN_REJECTED
+                                     │
+                              PICKUP_COMPLETED
+                                     │
+                                  REFUNDED   ← Razorpay refund API called here
 ```
 
 ---
@@ -152,6 +169,8 @@ npm run dev    # → http://localhost:5173
 | Payments        | `POST /api/payments/create/{orderId}`, `POST /api/payments/verify`             |
 | Admin orders    | `GET /api/admin/orders`, `PATCH /api/admin/orders/{id}/status`                 |
 | Admin users     | `GET /api/admin/users`, `PATCH /api/admin/users/{id}/block`                    |
+| **Returns**     | `POST /api/orders/{id}/return`, `GET /api/orders/{id}/return`                  |
+| **Admin Returns**| `GET /api/admin/returns`, `PATCH /api/admin/returns/{id}/approve`, `/reject`, `/pickup-completed` |
 | **AI — Admin**  | `POST /api/admin/ai/generate-description`                                      |
 | **AI — Chat**   | `POST /api/chat/message`                                                       |
 
@@ -193,6 +212,7 @@ The existing WebClient (spring-boot-starter-webflux) pattern was already proven 
 - [x] Admin Panel (Products, Orders, Users)
 - [x] ✨ AI Product Description Generator (Groq)
 - [x] 🤖 AI Customer Support Chatbot (Groq)
+- [x] ↩️ Return & Refund Workflow (Razorpay refund on pickup)
 - [ ] Admin Analytics Dashboard
 - [ ] Return & Refund Workflow
 - [ ] Courier/tracking number integration

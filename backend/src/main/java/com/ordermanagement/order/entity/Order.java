@@ -49,9 +49,19 @@ public class Order extends BaseEntity {
                 OrderStatus.SHIPPED, OrderStatus.CANCELLED));
         TRANSITIONS.put(OrderStatus.SHIPPED, Set.of(
                 OrderStatus.DELIVERED));
-        TRANSITIONS.put(OrderStatus.DELIVERED, Set.of());
+        TRANSITIONS.put(OrderStatus.DELIVERED, Set.of(
+                OrderStatus.RETURN_REQUESTED));
         TRANSITIONS.put(OrderStatus.CANCELLED, Set.of());
         TRANSITIONS.put(OrderStatus.EXPIRED, Set.of());
+        // ── Return & Refund workflow ──────────────────────────────────────
+        TRANSITIONS.put(OrderStatus.RETURN_REQUESTED, Set.of(
+                OrderStatus.RETURN_APPROVED, OrderStatus.RETURN_REJECTED));
+        TRANSITIONS.put(OrderStatus.RETURN_APPROVED, Set.of(
+                OrderStatus.PICKUP_COMPLETED));
+        TRANSITIONS.put(OrderStatus.PICKUP_COMPLETED, Set.of(
+                OrderStatus.REFUNDED));
+        TRANSITIONS.put(OrderStatus.RETURN_REJECTED, Set.of());
+        TRANSITIONS.put(OrderStatus.REFUNDED, Set.of());
     }
 
     @Id

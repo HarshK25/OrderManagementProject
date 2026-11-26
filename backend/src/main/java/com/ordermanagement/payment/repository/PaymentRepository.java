@@ -18,4 +18,7 @@ public interface PaymentRepository extends JpaRepository<Payment, Long> {
 
     /** Delete all payment records for an order (called before order deletion to satisfy FK). */
     void deleteByOrder(Order order);
+
+    /** Find the verified (SUCCESS) payment for a given order — used for Razorpay refunds. */
+    Optional<Payment> findByOrderIdAndStatus(Long orderId, com.ordermanagement.payment.entity.PaymentStatus status);
 }
