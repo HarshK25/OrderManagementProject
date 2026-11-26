@@ -214,6 +214,7 @@ The existing WebClient (spring-boot-starter-webflux) pattern was already proven 
 - [x] 🤖 AI Customer Support Chatbot (Groq)
 - [x] ↩️ Return & Refund Workflow (Razorpay refund on pickup)
 - [x] 📊 Admin Analytics Dashboard (revenue charts, top products, KPIs)
+- [x] ⭐ Product Reviews & Ratings (verified purchase, star distribution, avg shown on listing)
 - [ ] Admin Analytics Dashboard
 - [ ] Return & Refund Workflow
 - [ ] Courier/tracking number integration

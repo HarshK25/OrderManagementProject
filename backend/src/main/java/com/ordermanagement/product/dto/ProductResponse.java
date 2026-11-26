@@ -44,6 +44,10 @@ public class ProductResponse {
     private boolean active;
     private LocalDateTime createdAt;
 
+    // ── Rating summary (populated by ReviewService, null if not fetched) ──
+    private Double avgRating;      // e.g. 4.3
+    private Long   reviewCount;    // total number of reviews
+
     public static ProductResponse from(Product p) {
         return ProductResponse.builder()
                 .id(p.getId())

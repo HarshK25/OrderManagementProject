@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import api from '../api/axiosInstance'
+import { StarDisplay } from '../components/StarRating'
 
 const SORT_OPTIONS = [
   { value: 'createdAt,desc', label: 'Newest First' },
@@ -32,6 +33,11 @@ function ProductCard({ product }) {
             <span style={{ fontSize: '.78rem', color: 'var(--text-muted)' }}>
               {product.categoryName}
             </span>
+          )}
+          {product.avgRating > 0 && (
+            <div style={{ marginTop: '.25rem' }}>
+              <StarDisplay rating={product.avgRating} count={product.reviewCount} size=".82rem" />
+            </div>
           )}
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '.5rem' }}>
             <span className="product-card-price">{formatINR(effectivePrice)}</span>
@@ -86,8 +92,22 @@ export default function ProductListPage() {
 
     api.get('/products', { params })
       .then(({ data }) => {
-        setProducts(data.content)
+        const loaded = data.content
+        setProducts(loaded)
         setTotalPages(data.totalPages)
+        // Fetch bulk ratings and merge into product list
+        if (loaded && loaded.length > 0) {
+          const ids = loaded.map(p => p.id).join(',')
+          api.get(`/products/reviews/summaries?ids=${ids}`)
+            .then(({ data: ratings }) => {
+              setProducts(prev => prev.map(p => ({
+                ...p,
+                avgRating:   ratings[p.id]?.avgRating   ?? 0,
+                reviewCount: ratings[p.id]?.totalReviews ?? 0,
+              })))
+            })
+            .catch(() => {}) // non-critical — ratings are enhancement only
+        }
       })
       .catch(() => setError('Failed to load products'))
       .finally(() => setLoading(false))
