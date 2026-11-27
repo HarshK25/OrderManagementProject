@@ -1,15 +1,9 @@
 import { useState, useEffect } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { ArrowRight } from 'lucide-react'
 import api from '../api/axiosInstance'
+import { PageTransition, formatINR } from '../components/ui/GlassUI'
 
-function formatINR(amount) {
-  return '₹' + Number(amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })
-}
-
-/**
- * Loads the Razorpay Checkout script dynamically.
- * Returns a Promise that resolves when the script is ready.
- */
 function loadRazorpayScript() {
   return new Promise((resolve) => {
     if (window.Razorpay) return resolve(true)
@@ -22,11 +16,11 @@ function loadRazorpayScript() {
 }
 
 export default function PaymentPage() {
-  const location   = useLocation()
-  const navigate   = useNavigate()
+  const location = useLocation()
+  const navigate = useNavigate()
   const { orderId, orderNumber, total } = location.state || {}
 
-  const [status, setStatus]   = useState('idle') // idle | paying | success | error
+  const [status, setStatus] = useState('idle')
   const [message, setMessage] = useState('')
   const [loading, setLoading] = useState(false)
 
@@ -37,54 +31,48 @@ export default function PaymentPage() {
   const handlePayNow = async () => {
     setLoading(true)
     setMessage('')
-
-    // 1. Load Razorpay script
     const scriptLoaded = await loadRazorpayScript()
     if (!scriptLoaded) {
-      setMessage('Failed to load payment gateway. Please try again.')
+      setMessage('Could not load payment gateway. Try again.')
       setLoading(false)
       return
     }
 
-    // 2. Create Razorpay order from backend
     let paymentData
     try {
       const { data } = await api.post(`/payments/create/${orderId}`)
       paymentData = data
     } catch (err) {
-      setMessage(err.response?.data?.message || 'Failed to initiate payment')
+      setMessage(err.response?.data?.message || 'Could not start payment')
       setLoading(false)
       return
     }
 
-    // 3. Open Razorpay Checkout popup
     const options = {
-      key:        paymentData.razorpayKeyId,
-      amount:     Math.round(paymentData.amount * 100), // paise
-      currency:   paymentData.currency || 'INR',
-      name:       'OrderMS',
+      key: paymentData.razorpayKeyId,
+      amount: Math.round(paymentData.amount * 100),
+      currency: paymentData.currency || 'INR',
+      name: 'ShopVerse',
       description: `Payment for ${paymentData.orderNumber}`,
-      order_id:   paymentData.razorpayOrderId,
+      order_id: paymentData.razorpayOrderId,
       handler: async function (response) {
-        // 4. Verify signature on backend
         try {
           await api.post('/payments/verify', {
-            razorpayOrderId:   response.razorpay_order_id,
+            razorpayOrderId: response.razorpay_order_id,
             razorpayPaymentId: response.razorpay_payment_id,
             razorpaySignature: response.razorpay_signature,
           })
           setStatus('success')
-          setMessage(`Payment successful! Your order ${orderNumber} is confirmed.`)
+          setMessage(`Payment verified. Order ${orderNumber} is confirmed.`)
         } catch (verifyErr) {
           setStatus('error')
           setMessage(verifyErr.response?.data?.message || 'Payment verification failed')
         }
       },
-      prefill: {},
-      theme: { color: '#6366f1' },
+      theme: { color: '#1a4be0' },
       modal: {
         ondismiss: () => {
-          setMessage('Payment cancelled. You can pay later from My Orders.')
+          setMessage('Payment window closed. You have 15 minutes to pay from your Orders page.')
           setLoading(false)
         },
       },
@@ -99,51 +87,39 @@ export default function PaymentPage() {
   if (!orderId) return null
 
   return (
-    <div className="page-container">
-      <div style={{ maxWidth: '480px', margin: '0 auto' }}>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <h1 style={{ marginBottom: '1rem' }}>Complete Payment</h1>
+    <PageTransition className="max-w-md mx-auto px-6 py-16">
+      <div className="ts-card p-8">
+        <div className="font-mono text-xs uppercase tracking-wider text-[var(--text-muted)]">Razorpay checkout</div>
+        <h1 className="text-2xl font-semibold tracking-[-0.03em] text-[var(--text)] mt-1">
+          {status === 'success' ? 'Payment verified' : 'Complete payment'}
+        </h1>
 
-          <div style={{ marginBottom: '1.5rem', padding: '1.5rem', background: 'var(--surface-2)', borderRadius: '8px' }}>
-            <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>Order Number</div>
-            <div style={{ fontWeight: 700, fontSize: '1.1rem', marginBottom: '.75rem' }}>{orderNumber}</div>
-            <div style={{ color: 'var(--text-muted)', fontSize: '.9rem' }}>Amount to Pay</div>
-            <div style={{ fontWeight: 800, fontSize: '2rem', color: 'var(--primary)' }}>
-              {formatINR(total)}
-            </div>
-          </div>
-
-          {message && (
-            <div className={`alert ${status === 'success' ? 'alert-success' : 'alert-error'}`}>
-              {message}
-            </div>
-          )}
-
-          {status === 'success' ? (
-            <div>
-              <div style={{ fontSize: '3rem', marginBottom: '1rem' }}>✅</div>
-              <button id="view-orders-btn" className="btn btn-primary w-full"
-                onClick={() => navigate('/orders')}>
-                View My Orders
-              </button>
-            </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              <button
-                id="pay-now-btn"
-                className="btn btn-primary w-full"
-                onClick={handlePayNow}
-                disabled={loading || status === 'paying'}
-              >
-                {loading ? 'Loading payment gateway...' : '💳 Pay Now with Razorpay'}
-              </button>
-              <button className="btn btn-secondary w-full" onClick={() => navigate('/orders')}>
-                Pay Later (order will expire in 15 min)
-              </button>
-            </div>
-          )}
+        <div className="my-6 p-5 rounded-lg bg-[var(--bg)] border border-[var(--border)]">
+          <div className="font-mono text-xs text-[var(--text-muted)]">Order reference</div>
+          <div className="font-mono font-medium text-sm text-[var(--primary)] mt-0.5 mb-4">{orderNumber}</div>
+          <div className="font-mono text-xs text-[var(--text-muted)]">Amount due</div>
+          <div className="text-3xl font-semibold tabular mt-1">{formatINR(total)}</div>
         </div>
+
+        {message && (
+          <div className={`alert ${status === 'success' ? 'alert-success' : 'alert-error'}`}>{message}</div>
+        )}
+
+        {status === 'success' ? (
+          <button className="ts-btn-primary w-full" onClick={() => navigate(`/orders/${orderId}`)}>
+            Open order tracking <ArrowRight className="w-4 h-4" />
+          </button>
+        ) : (
+          <div className="space-y-3">
+            <button className="ts-btn-primary w-full" onClick={handlePayNow} disabled={loading}>
+              {loading ? 'Opening gateway...' : `Pay ${formatINR(total)}`}
+            </button>
+            <button onClick={() => navigate(`/orders/${orderId}`)} className="ts-btn-secondary w-full text-xs">
+              Pay later (15-minute window)
+            </button>
+          </div>
+        )}
       </div>
-    </div>
+    </PageTransition>
   )
 }

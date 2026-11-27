@@ -15,4 +15,10 @@ public class UpdateOrderStatusRequest {
 
     /** Optional estimated delivery date set or updated by admin */
     private java.time.LocalDate estimatedDeliveryDate;
+
+    /** Optional shipment tracking number */
+    private String trackingNumber;
+
+    /** Optional shipping carrier (e.g. BlueDart, Delhivery) */
+    private String carrier;
 }

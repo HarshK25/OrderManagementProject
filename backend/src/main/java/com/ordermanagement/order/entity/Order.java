@@ -44,10 +44,16 @@ public class Order extends BaseEntity {
 
     static {
         TRANSITIONS.put(OrderStatus.PENDING_PAYMENT, Set.of(
-                OrderStatus.PAID, OrderStatus.CANCELLED, OrderStatus.EXPIRED));
+                OrderStatus.PAID, OrderStatus.CONFIRMED, OrderStatus.CANCELLED, OrderStatus.EXPIRED));
         TRANSITIONS.put(OrderStatus.PAID, Set.of(
+                OrderStatus.CONFIRMED, OrderStatus.PACKED, OrderStatus.SHIPPED, OrderStatus.CANCELLED));
+        TRANSITIONS.put(OrderStatus.CONFIRMED, Set.of(
+                OrderStatus.PACKED, OrderStatus.SHIPPED, OrderStatus.CANCELLED));
+        TRANSITIONS.put(OrderStatus.PACKED, Set.of(
                 OrderStatus.SHIPPED, OrderStatus.CANCELLED));
         TRANSITIONS.put(OrderStatus.SHIPPED, Set.of(
+                OrderStatus.OUT_FOR_DELIVERY, OrderStatus.DELIVERED));
+        TRANSITIONS.put(OrderStatus.OUT_FOR_DELIVERY, Set.of(
                 OrderStatus.DELIVERED));
         TRANSITIONS.put(OrderStatus.DELIVERED, Set.of(
                 OrderStatus.RETURN_REQUESTED));
@@ -127,6 +133,23 @@ public class Order extends BaseEntity {
     /** Exact timestamp when order was marked DELIVERED */
     @Column(name = "delivered_at")
     private LocalDateTime deliveredAt;
+
+    @Column(name = "payment_method", nullable = false, length = 30)
+    @Builder.Default
+    private String paymentMethod = "ONLINE";
+
+    @Column(name = "coupon_code", length = 50)
+    private String couponCode;
+
+    @Column(name = "coupon_discount", nullable = false, precision = 12, scale = 2)
+    @Builder.Default
+    private BigDecimal couponDiscount = BigDecimal.ZERO;
+
+    @Column(name = "tracking_number", length = 100)
+    private String trackingNumber;
+
+    @Column(name = "carrier", length = 100)
+    private String carrier;
 
     @OneToMany(mappedBy = "order", cascade = CascadeType.ALL,
                orphanRemoval = true, fetch = FetchType.LAZY)

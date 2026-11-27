@@ -49,4 +49,8 @@ public class Payment extends BaseEntity {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 30)
     private PaymentStatus status;
+
+    @Column(name = "payment_method", nullable = false, length = 30)
+    @Builder.Default
+    private String paymentMethod = "ONLINE";
 }

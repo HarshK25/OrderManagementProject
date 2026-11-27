@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <rect width="64" height="64" rx="16" fill="#1A4BE0"/>
+  <!-- Shopping bag handle -->
+  <path d="M23 24V20C23 15.0294 27.0294 11 32 11C36.9706 11 41 15.0294 41 20V24" stroke="#FFFFFF" stroke-width="4" stroke-linecap="round"/>
+  <!-- Crisp bag body -->
+  <rect x="14" y="23" width="36" height="29" rx="7" fill="#FFFFFF"/>
+  <!-- Stylized V (Verse) chevron + orbital spark -->
+  <path d="M24 33L32 43L40 33" stroke="#1A4BE0" stroke-width="4.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="44" cy="29" r="2.6" fill="#1A4BE0"/>
+</svg>

@@ -53,6 +53,12 @@ public class OrderResponse {
     /** Exact timestamp when order was delivered */
     private LocalDateTime deliveredAt;
 
+    private String paymentMethod;
+    private String couponCode;
+    private BigDecimal couponDiscount;
+    private String trackingNumber;
+    private String carrier;
+
     /** Full audit trail — included in detail views, null in list views. */
     private List<OrderStatusHistoryResponse> statusHistory;
 
@@ -74,6 +80,11 @@ public class OrderResponse {
                 .estimatedDeliveryDate(o.getEstimatedDeliveryDate())
                 .shippedAt(o.getShippedAt())
                 .deliveredAt(o.getDeliveredAt())
+                .paymentMethod(o.getPaymentMethod())
+                .couponCode(o.getCouponCode())
+                .couponDiscount(o.getCouponDiscount())
+                .trackingNumber(o.getTrackingNumber())
+                .carrier(o.getCarrier())
                 .build();
     }
 
@@ -104,6 +115,11 @@ public class OrderResponse {
                 .estimatedDeliveryDate(o.getEstimatedDeliveryDate())
                 .shippedAt(o.getShippedAt())
                 .deliveredAt(o.getDeliveredAt())
+                .paymentMethod(o.getPaymentMethod())
+                .couponCode(o.getCouponCode())
+                .couponDiscount(o.getCouponDiscount())
+                .trackingNumber(o.getTrackingNumber())
+                .carrier(o.getCarrier())
                 .statusHistory(history)
                 .build();
     }

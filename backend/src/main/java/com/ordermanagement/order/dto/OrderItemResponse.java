@@ -16,6 +16,7 @@ public class OrderItemResponse {
     private Long id;
     private Long productId;          // nullable — product may have been deleted
     private String productName;      // snapshot
+    private String imageUrl;         // product thumbnail
     private BigDecimal unitPrice;    // snapshot (effective price at time of order)
     private Integer quantity;
     private BigDecimal lineTotal;    // unitPrice × quantity
@@ -25,6 +26,7 @@ public class OrderItemResponse {
                 .id(item.getId())
                 .productId(item.getProduct() != null ? item.getProduct().getId() : null)
                 .productName(item.getProductName())
+                .imageUrl(item.getProduct() != null ? item.getProduct().getImageUrl() : null)
                 .unitPrice(item.getUnitPrice())
                 .quantity(item.getQuantity())
                 .lineTotal(item.getLineTotal())

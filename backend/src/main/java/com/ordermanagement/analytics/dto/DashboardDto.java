@@ -29,7 +29,12 @@ public record DashboardDto(
         List<StatusCount> statusDistribution,
 
         // ── 5 most recent orders ──────────────────────────────────────────────
-        List<RecentOrder> recentOrders
+        List<RecentOrder> recentOrders,
+
+        // ── Extended SaaS metrics ─────────────────────────────────────────────
+        long cancelledOrders,
+        long totalProducts,
+        List<LowStockProduct> lowStockProducts
 
 ) {
     public record RevenuePoint(String date, BigDecimal revenue, long orderCount) {}
@@ -42,5 +47,7 @@ public record DashboardDto(
             Long id, String orderNumber, String customerName,
             String customerEmail, BigDecimal total, String status, String createdAt
     ) {}
+
+    public record LowStockProduct(Long id, String name, int stock, BigDecimal price) {}
 }
 

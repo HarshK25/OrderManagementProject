@@ -21,7 +21,10 @@ package com.ordermanagement.order.entity;
 public enum OrderStatus {
     PENDING_PAYMENT,
     PAID,
+    CONFIRMED,
+    PACKED,
     SHIPPED,
+    OUT_FOR_DELIVERY,
     DELIVERED,
     CANCELLED,
     EXPIRED,

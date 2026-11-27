@@ -36,4 +36,10 @@ public class PlaceOrderRequest {
     @NotBlank(message = "Pincode is required")
     @Pattern(regexp = "^[1-9]\\d{5}$", message = "Enter a valid 6-digit Indian pincode")
     private String shippingPincode;
+
+    /** Optional: UPI, CARD, NET_BANKING, COD, or ONLINE (default) */
+    private String paymentMethod;
+
+    /** Optional discount coupon code */
+    private String couponCode;
 }

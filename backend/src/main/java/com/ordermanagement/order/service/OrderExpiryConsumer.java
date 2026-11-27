@@ -86,7 +86,14 @@ public class OrderExpiryConsumer {
         }
 
         // 3. Transition to EXPIRED
-        order.transitionTo(OrderStatus.EXPIRED, "Payment window elapsed", "system");
+        order.transitionTo(OrderStatus.EXPIRED, "Payment window elapsed (15-minute delay queue)", "system");
+
+        // Mark any initiated payments for this order as EXPIRED
+        entityManager.createQuery(
+                "UPDATE Payment p SET p.status = com.ordermanagement.payment.entity.PaymentStatus.EXPIRED " +
+                "WHERE p.order.id = :orderId AND p.status = com.ordermanagement.payment.entity.PaymentStatus.INITIATED")
+                .setParameter("orderId", orderId)
+                .executeUpdate();
 
         // 4. Restore stock atomically for each item
         order.getItems().forEach(item -> {

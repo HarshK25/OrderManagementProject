@@ -11,6 +11,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.Map;
+
 /**
  * Authentication REST endpoints.
  *
@@ -39,6 +41,31 @@ public class AuthController {
     @Operation(summary = "Register a new customer account")
     public AuthResponse register(@Valid @RequestBody RegisterRequest request) {
         return authService.register(request);
+    }
+
+    @PostMapping("/register/send-otp")
+    @Operation(summary = "Send 6-digit email confirmation OTP before creating account")
+    public Map<String, Object> sendRegistrationOtp(@Valid @RequestBody RegisterRequest request) {
+        return authService.sendRegistrationOtp(request);
+    }
+
+    @PostMapping("/register/verify-otp")
+    @ResponseStatus(HttpStatus.CREATED)
+    @Operation(summary = "Verify 6-digit email confirmation OTP and activate account")
+    public AuthResponse verifyRegistrationOtp(@RequestBody Map<String, String> body) {
+        return authService.verifyRegistrationOtp(body.get("email"), body.get("otp"));
+    }
+
+    @PostMapping("/forgot-password")
+    @Operation(summary = "Send 6-digit password reset code to registered email")
+    public Map<String, Object> forgotPassword(@RequestBody Map<String, String> body) {
+        return authService.sendPasswordResetOtp(body.get("email"));
+    }
+
+    @PostMapping("/reset-password")
+    @Operation(summary = "Reset password using 6-digit email OTP")
+    public Map<String, Object> resetPassword(@RequestBody Map<String, String> body) {
+        return authService.resetPassword(body.get("email"), body.get("otp"), body.get("newPassword"));
     }
 
     @PostMapping("/login")

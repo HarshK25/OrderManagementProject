@@ -32,6 +32,7 @@ import org.springframework.web.bind.annotation.*;
 public class ReviewController {
 
     private final ReviewService reviewService;
+    private final com.ordermanagement.ai.service.GeminiService geminiService;
 
     // ── Public ────────────────────────────────────────────────────────────────
 
@@ -82,6 +83,16 @@ public class ReviewController {
                 ? reviewService.getEligibleOrderIds(productId, user.getId())
                 : java.util.List.of();
         return java.util.Map.of("canReview", can, "eligibleOrderIds", orderIds);
+    }
+
+    @PostMapping("/api/products/{productId}/reviews/ai-suggestions")
+    public java.util.Map<String, Object> aiReviewSuggestions(
+            @PathVariable Long productId,
+            @RequestBody java.util.Map<String, Object> body) {
+        int rating = body.get("rating") instanceof Number n ? n.intValue() : 5;
+        String productName = body.get("productName") != null ? body.get("productName").toString() : "this product";
+        String draft = body.get("draft") != null ? body.get("draft").toString() : "";
+        return java.util.Map.of("suggestions", geminiService.suggestReviewDrafts(productName, rating, draft));
     }
 
     // ── Admin ─────────────────────────────────────────────────────────────────

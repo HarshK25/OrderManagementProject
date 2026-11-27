@@ -88,7 +88,7 @@ services:
       REDIS_PORT: 6379
       RABBITMQ_HOST: rabbitmq
       RABBITMQ_PORT: 5672
-      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost
+      CORS_ALLOWED_ORIGINS: http://localhost:5173,http://localhost,http://177.171.101.245
     ports:
       - "8080:8080"
     depends_on:

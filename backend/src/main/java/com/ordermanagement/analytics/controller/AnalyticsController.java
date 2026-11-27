@@ -27,5 +27,14 @@ public class AnalyticsController {
     public DashboardDto getDashboard() {
         return analyticsService.getDashboard();
     }
+
+    @GetMapping(value = "/export/orders", produces = "text/csv")
+    public org.springframework.http.ResponseEntity<String> exportOrdersCsv() {
+        String csv = analyticsService.exportOrdersCsv();
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=orders-export.csv")
+                .body(csv);
+    }
 }
 

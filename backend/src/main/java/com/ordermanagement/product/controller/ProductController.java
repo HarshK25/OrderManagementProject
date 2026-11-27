@@ -3,8 +3,10 @@ package com.ordermanagement.product.controller;
 import com.ordermanagement.common.dto.PagedResponse;
 import com.ordermanagement.product.dto.ProductRequest;
 import com.ordermanagement.product.dto.ProductResponse;
+import com.ordermanagement.ai.service.AiCommerceService;
 import com.ordermanagement.product.dto.StockAdjustRequest;
 import com.ordermanagement.product.service.ProductService;
+import com.ordermanagement.product.service.SearchRecommendationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.security.SecurityRequirement;
@@ -18,6 +20,8 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
 
 /**
  * Product endpoints.
@@ -42,6 +46,8 @@ import java.math.BigDecimal;
 public class ProductController {
 
     private final ProductService productService;
+    private final SearchRecommendationService searchRecommendationService;
+    private final AiCommerceService aiCommerceService;
 
     // ── Public ────────────────────────────────────────────────────────
 
@@ -51,14 +57,55 @@ public class ProductController {
             @Parameter(description = "Filter by category ID") @RequestParam(required = false) Long categoryId,
             @Parameter(description = "Minimum price (inclusive)") @RequestParam(required = false) BigDecimal minPrice,
             @Parameter(description = "Maximum price (inclusive)") @RequestParam(required = false) BigDecimal maxPrice,
-            @Parameter(description = "Search in product name") @RequestParam(required = false) String search,
+            @Parameter(description = "Search in product name, description, or category") @RequestParam(required = false) String search,
+            @Parameter(description = "Alias for search") @RequestParam(required = false) String q,
             @RequestParam(defaultValue = "0")   int page,
             @RequestParam(defaultValue = "12")  int size,
             @RequestParam(defaultValue = "createdAt") String sortBy,
             @RequestParam(defaultValue = "desc") String direction) {
 
+        String effectiveSearch = (search != null && !search.isBlank()) ? search : q;
+        if (effectiveSearch != null && !effectiveSearch.isBlank()) {
+            searchRecommendationService.recordSearch(effectiveSearch);
+        }
         Pageable pageable = buildPageable(page, size, sortBy, direction);
-        return productService.getPublicProducts(categoryId, minPrice, maxPrice, search, pageable);
+        return productService.getPublicProducts(categoryId, minPrice, maxPrice, effectiveSearch, pageable);
+    }
+
+    @GetMapping("/api/products/trending-searches")
+    @Operation(summary = "Get top searched keywords across the store")
+    public Map<String, Object> trendingSearches(
+            @RequestParam(defaultValue = "8") int limit) {
+        List<Map<String, Object>> queries = searchRecommendationService.getTrendingSearches(limit);
+        return Map.of("queries", queries);
+    }
+
+    @GetMapping("/api/products/recommendations")
+    @Operation(summary = "Get recommended products based on top global searches and user recent searches")
+    public Map<String, Object> recommendations(
+            @Parameter(description = "Comma-separated recent search queries from client") @RequestParam(required = false) String recent,
+            @RequestParam(defaultValue = "8") int limit) {
+        return searchRecommendationService.getRecommendations(recent, limit);
+    }
+
+    @GetMapping("/api/products/smart-search")
+    @Operation(summary = "Natural-language / intent shopping search (e.g. 'running shoes under 6000')")
+    public Map<String, Object> smartSearch(@RequestParam String q) {
+        return aiCommerceService.smartSearch(q);
+    }
+
+    @GetMapping("/api/products/compare")
+    @Operation(summary = "Compare 2-3 products side-by-side with an AI verdict")
+    public Map<String, Object> compareProducts(@RequestParam List<Long> ids) {
+        return aiCommerceService.compareProducts(ids);
+    }
+
+    @GetMapping("/api/products/{id}/frequently-bought-together")
+    @Operation(summary = "Get products frequently bought together with the given product")
+    public Map<String, Object> frequentlyBoughtTogether(
+            @PathVariable Long id,
+            @RequestParam(defaultValue = "3") int limit) {
+        return aiCommerceService.frequentlyBoughtTogether(id, limit);
     }
 
     @GetMapping("/api/products/{id}")

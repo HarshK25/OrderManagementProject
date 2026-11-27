@@ -31,9 +31,9 @@ public class AnalyticsService {
 
     private final EntityManager em;
 
-    // Statuses that represent real revenue (payment captured)
+    // Statuses that represent real revenue (payment captured or confirmed COD)
     private static final List<String> REVENUE_STATUSES = List.of(
-            "PAID", "SHIPPED", "DELIVERED",
+            "PAID", "CONFIRMED", "PACKED", "SHIPPED", "OUT_FOR_DELIVERY", "DELIVERED",
             "RETURN_REQUESTED", "RETURN_APPROVED", "RETURN_REJECTED",
             "PICKUP_COMPLETED", "REFUNDED"
     );
@@ -46,13 +46,18 @@ public class AnalyticsService {
                 getTotalCustomers(),
                 getAvgOrderValue(),
                 getOrderCountByStatus("PENDING_PAYMENT"),
-                getOrderCountByStatus("PAID") + getOrderCountByStatus("SHIPPED"),
+                getOrderCountByStatus("PAID") + getOrderCountByStatus("CONFIRMED")
+                        + getOrderCountByStatus("PACKED") + getOrderCountByStatus("SHIPPED")
+                        + getOrderCountByStatus("OUT_FOR_DELIVERY"),
                 getTotalRefunded(),
                 getTotalReturns(),
                 getRevenueByDay(),
                 getTopProducts(),
                 getStatusDistribution(),
-                getRecentOrders()
+                getRecentOrders(),
+                getOrderCountByStatus("CANCELLED") + getOrderCountByStatus("EXPIRED"),
+                getTotalProducts(),
+                getLowStockProducts()
         );
     }
 
@@ -101,6 +106,57 @@ public class AnalyticsService {
     private long getTotalReturns() {
         Query q = em.createNativeQuery("SELECT COUNT(*) FROM return_requests");
         return ((Number) q.getSingleResult()).longValue();
+    }
+
+    private long getTotalProducts() {
+        Query q = em.createNativeQuery("SELECT COUNT(*) FROM products WHERE active = true");
+        return ((Number) q.getSingleResult()).longValue();
+    }
+
+    @SuppressWarnings("unchecked")
+    public List<LowStockProduct> getLowStockProducts() {
+        List<Object[]> rows = em.createNativeQuery(
+                "SELECT id, name, stock, price FROM products WHERE active = true AND stock <= 10 ORDER BY stock ASC LIMIT 12")
+                .getResultList();
+        return rows.stream().map(r -> new LowStockProduct(
+                ((Number) r[0]).longValue(),
+                (String) r[1],
+                ((Number) r[2]).intValue(),
+                toBigDecimal(r[3])
+        )).toList();
+    }
+
+    @Transactional(readOnly = true)
+    @SuppressWarnings("unchecked")
+    public String exportOrdersCsv() {
+        List<Object[]> rows = em.createNativeQuery("""
+                SELECT o.order_number, u.name, u.email, o.status, o.payment_method,
+                       o.subtotal, o.discount_total, o.coupon_discount, o.total, o.created_at
+                FROM orders o
+                JOIN users u ON u.id = o.user_id
+                ORDER BY o.created_at DESC
+                """).getResultList();
+        StringBuilder sb = new StringBuilder();
+        sb.append("OrderNumber,CustomerName,CustomerEmail,Status,PaymentMethod,Subtotal,Discount,CouponDiscount,Total,CreatedAt\n");
+        for (Object[] r : rows) {
+            sb.append(csv(r[0])).append(',')
+              .append(csv(r[1])).append(',')
+              .append(csv(r[2])).append(',')
+              .append(csv(r[3])).append(',')
+              .append(csv(r[4])).append(',')
+              .append(csv(r[5])).append(',')
+              .append(csv(r[6])).append(',')
+              .append(csv(r[7])).append(',')
+              .append(csv(r[8])).append(',')
+              .append(csv(r[9])).append('\n');
+        }
+        return sb.toString();
+    }
+
+    private String csv(Object val) {
+        if (val == null) return "";
+        String s = val.toString().replace("\"", "\"\"");
+        return s.contains(",") || s.contains("\"") || s.contains("\n") ? "\"" + s + "\"" : s;
     }
 
     // ── Revenue by day (last 30 days) ────────────────────────────────────────

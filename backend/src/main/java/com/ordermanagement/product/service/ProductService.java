@@ -18,6 +18,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * Product business logic.
@@ -49,11 +52,156 @@ public class ProductService {
             Long categoryId, BigDecimal minPrice, BigDecimal maxPrice,
             String search, Pageable pageable) {
 
+        String effectiveSearch = search;
+        BigDecimal effectiveMin = minPrice;
+        BigDecimal effectiveMax = maxPrice;
+
+        // Automatically handle natural-language price phrases in the main search bar
+        // e.g. "shoes under 6000", "headphones below 10000", "watch between 2000 and 10000"
+        if (effectiveSearch != null && !effectiveSearch.isBlank()) {
+            String lower = effectiveSearch.toLowerCase();
+            Matcher between = Pattern.compile("between\\s*₹?\\s*(\\d+)\\s*(?:and|to|-)\\s*₹?\\s*(\\d+)").matcher(lower);
+            if (between.find()) {
+                if (effectiveMin == null) effectiveMin = new BigDecimal(between.group(1));
+                if (effectiveMax == null) effectiveMax = new BigDecimal(between.group(2));
+                effectiveSearch = effectiveSearch.replaceAll("(?i)between\\s*₹?\\s*\\d+\\s*(?:and|to|-)\\s*₹?\\s*\\d+", " ");
+            } else {
+                Matcher under = Pattern.compile("(?:under|below|less than|max|upto|up to|<=)\\s*₹?\\s*(\\d+)").matcher(lower);
+                if (under.find()) {
+                    if (effectiveMax == null) effectiveMax = new BigDecimal(under.group(1));
+                    effectiveSearch = effectiveSearch.replaceAll("(?i)(?:under|below|less than|max|upto|up to|<=)\\s*₹?\\s*\\d+", " ");
+                }
+                Matcher hiUnder = Pattern.compile("₹?\\s*(\\d+)\\s*(?:ke\\s+andar|se\\s+kam|tak)").matcher(lower);
+                if (hiUnder.find()) {
+                    if (effectiveMax == null) effectiveMax = new BigDecimal(hiUnder.group(1));
+                    effectiveSearch = effectiveSearch.replaceAll("(?i)₹?\\s*\\d+\\s*(?:ke\\s+andar|se\\s+kam|tak)", " ");
+                }
+                Matcher above = Pattern.compile("(?:above|over|more than|min|>=)\\s*₹?\\s*(\\d+)").matcher(lower);
+                if (above.find()) {
+                    if (effectiveMin == null) effectiveMin = new BigDecimal(above.group(1));
+                    effectiveSearch = effectiveSearch.replaceAll("(?i)(?:above|over|more than|min|>=)\\s*₹?\\s*\\d+", " ");
+                }
+                Matcher hiAbove = Pattern.compile("₹?\\s*(\\d+)\\s*(?:se\\s+upar|se\\s+jyada|se\\s+zyada)").matcher(lower);
+                if (hiAbove.find()) {
+                    if (effectiveMin == null) effectiveMin = new BigDecimal(hiAbove.group(1));
+                    effectiveSearch = effectiveSearch.replaceAll("(?i)₹?\\s*\\d+\\s*(?:se\\s+upar|se\\s+jyada|se\\s+zyada)", " ");
+                }
+            }
+            effectiveSearch = effectiveSearch.replaceAll("\\s+", " ").trim();
+            if (effectiveSearch.isEmpty()) effectiveSearch = null;
+        }
+
         Specification<Product> spec = ProductSpec.withFilters(
-                categoryId, minPrice, maxPrice, search, true);
+                categoryId, effectiveMin, effectiveMax, effectiveSearch, true);
         Page<ProductResponse> page = productRepository.findAll(spec, pageable)
                 .map(ProductResponse::from);
-        return PagedResponse.from(page);
+        PagedResponse<ProductResponse> response = PagedResponse.from(page);
+
+        // Auto-correct misspelled search queries (Damerau-Levenshtein against catalog vocabulary)
+        if (response.getTotalElements() == 0 && effectiveSearch != null && !effectiveSearch.isBlank()) {
+            String corrected = correctSpelling(effectiveSearch);
+            if (corrected != null && !corrected.equalsIgnoreCase(effectiveSearch)) {
+                Specification<Product> correctedSpec = ProductSpec.withFilters(
+                        categoryId, effectiveMin, effectiveMax, corrected, true);
+                Page<ProductResponse> correctedPage = productRepository.findAll(correctedSpec, pageable)
+                        .map(ProductResponse::from);
+                if (correctedPage.getTotalElements() > 0) {
+                    PagedResponse<ProductResponse> correctedResp = PagedResponse.from(correctedPage);
+                    correctedResp.setCorrectedQuery(corrected);
+                    return correctedResp;
+                }
+            }
+        }
+
+        return response;
+    }
+
+    /**
+     * Corrects misspelled tokens in a search query against active product names,
+     * category names, and known e-commerce synonyms using Damerau-Levenshtein distance.
+     */
+    public String correctSpelling(String rawSearch) {
+        if (rawSearch == null || rawSearch.isBlank()) return rawSearch;
+        Set<String> vocab = buildCatalogVocabulary();
+        String[] tokens = rawSearch.trim().toLowerCase().split("[^a-z0-9]+");
+        List<String> correctedTokens = new ArrayList<>();
+        boolean anyChanged = false;
+
+        for (String token : tokens) {
+            if (token.isEmpty()) continue;
+            if (token.length() < 3 || vocab.contains(token)) {
+                correctedTokens.add(token);
+                continue;
+            }
+            String best = findClosestWord(token, vocab);
+            if (best != null && !best.equals(token)) {
+                correctedTokens.add(best);
+                anyChanged = true;
+            } else {
+                correctedTokens.add(token);
+            }
+        }
+        return anyChanged ? String.join(" ", correctedTokens) : rawSearch;
+    }
+
+    private Set<String> buildCatalogVocabulary() {
+        Set<String> vocab = new LinkedHashSet<>(ProductSpec.getAllSynonymWords());
+        for (Product p : productRepository.findAll()) {
+            if (!p.isActive()) continue;
+            addWords(vocab, p.getName());
+            if (p.getCategory() != null) addWords(vocab, p.getCategory().getName());
+        }
+        return vocab;
+    }
+
+    private void addWords(Set<String> vocab, String text) {
+        if (text == null) return;
+        for (String w : text.toLowerCase().split("[^a-z0-9]+")) {
+            if (w.length() >= 3) vocab.add(w);
+        }
+    }
+
+    private String findClosestWord(String input, Set<String> vocab) {
+        int maxDist = input.length() <= 4 ? 1 : (input.length() <= 8 ? 2 : 3);
+        String bestWord = null;
+        int bestDist = maxDist + 1;
+        boolean bestSameFirst = false;
+
+        for (String candidate : vocab) {
+            if (Math.abs(candidate.length() - input.length()) > maxDist) continue;
+            int d = damerauLevenshtein(input, candidate);
+            if (d <= maxDist) {
+                boolean sameFirst = candidate.charAt(0) == input.charAt(0);
+                if (d < bestDist || (d == bestDist && sameFirst && !bestSameFirst)) {
+                    bestDist = d;
+                    bestWord = candidate;
+                    bestSameFirst = sameFirst;
+                }
+            }
+        }
+        return bestWord;
+    }
+
+    private int damerauLevenshtein(String a, String b) {
+        int n = a.length(), m = b.length();
+        int[][] dp = new int[n + 1][m + 1];
+        for (int i = 0; i <= n; i++) dp[i][0] = i;
+        for (int j = 0; j <= m; j++) dp[0][j] = j;
+        for (int i = 1; i <= n; i++) {
+            for (int j = 1; j <= m; j++) {
+                int cost = (a.charAt(i - 1) == b.charAt(j - 1)) ? 0 : 1;
+                dp[i][j] = Math.min(
+                        Math.min(dp[i - 1][j] + 1, dp[i][j - 1] + 1),
+                        dp[i - 1][j - 1] + cost
+                );
+                if (i > 1 && j > 1
+                        && a.charAt(i - 1) == b.charAt(j - 2)
+                        && a.charAt(i - 2) == b.charAt(j - 1)) {
+                    dp[i][j] = Math.min(dp[i][j], dp[i - 2][j - 2] + 1);
+                }
+            }
+        }
+        return dp[n][m];
     }
 
     /**

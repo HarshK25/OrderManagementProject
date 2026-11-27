@@ -3,19 +3,25 @@ import api from '../../api/axiosInstance'
 import AdminLayout from '../../components/AdminLayout'
 
 const STATUS_BADGE = {
-  PENDING_PAYMENT: 'badge-pending',
-  PAID:            'badge-paid',
-  SHIPPED:         'badge-shipped',
-  DELIVERED:       'badge-delivered',
-  CANCELLED:       'badge-cancelled',
-  EXPIRED:         'badge-expired',
+  PENDING_PAYMENT:  'badge-pending',
+  PAID:             'badge-paid',
+  CONFIRMED:        'badge-paid',
+  PACKED:           'badge-paid',
+  SHIPPED:          'badge-shipped',
+  OUT_FOR_DELIVERY: 'badge-shipped',
+  DELIVERED:        'badge-delivered',
+  CANCELLED:        'badge-cancelled',
+  EXPIRED:          'badge-expired',
 }
 
 // Valid next statuses for each current status (admin view)
 const NEXT_STATUSES = {
-  PENDING_PAYMENT: ['CANCELLED'],
-  PAID:            ['SHIPPED', 'CANCELLED'],
-  SHIPPED:         ['DELIVERED'],
+  PENDING_PAYMENT:  ['CONFIRMED', 'CANCELLED'],
+  PAID:             ['CONFIRMED', 'PACKED', 'SHIPPED', 'CANCELLED'],
+  CONFIRMED:        ['PACKED', 'SHIPPED', 'CANCELLED'],
+  PACKED:           ['SHIPPED', 'CANCELLED'],
+  SHIPPED:          ['OUT_FOR_DELIVERY', 'DELIVERED'],
+  OUT_FOR_DELIVERY: ['DELIVERED'],
 }
 
 function formatINR(a) {
@@ -53,6 +59,14 @@ export default function AdminOrdersPage() {
   const [selectedOrder, setSelectedOrder] = useState(null)
   const [updatingStatus, setUpdatingStatus] = useState(false)
   const [deletingId, setDeletingId]         = useState(null)
+
+  // #9 AI Customer Notification Drafter state
+  const [notifScenario, setNotifScenario] = useState('ORDER_UPDATE')
+  const [notifTitle, setNotifTitle]       = useState('')
+  const [notifBody, setNotifBody]         = useState('')
+  const [notifSendEmail, setNotifSendEmail] = useState(false)
+  const [notifBusy, setNotifBusy]         = useState(false)
+  const [notifStatus, setNotifStatus]     = useState('')
 
   // Modal for shipping action with delivery date picker
   const [shippingModal, setShippingModal]   = useState({
@@ -131,7 +145,7 @@ export default function AdminOrdersPage() {
     }
   }
 
-  const ALL_STATUSES = ['PENDING_PAYMENT', 'PAID', 'SHIPPED', 'DELIVERED', 'CANCELLED', 'EXPIRED']
+  const ALL_STATUSES = ['PENDING_PAYMENT', 'PAID', 'CONFIRMED', 'PACKED', 'SHIPPED', 'OUT_FOR_DELIVERY', 'DELIVERED', 'CANCELLED', 'EXPIRED']
 
   return (
     <AdminLayout title="Orders Management">
@@ -304,6 +318,99 @@ export default function AdminOrdersPage() {
                   {h.toStatus?.replace('_', ' ')} — {formatDate(h.changedAt)}
                 </div>
               ))}
+            </div>
+
+            {/* #9 AI Automated Customer Notification / Email Drafter */}
+            <div className="divider" />
+            <div className="space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="font-mono text-[11px] uppercase tracking-wider text-[var(--primary)]">
+                  AI Customer Message
+                </span>
+                <button
+                  type="button"
+                  disabled={notifBusy}
+                  onClick={async () => {
+                    setNotifBusy(true); setNotifStatus('')
+                    try {
+                      const { data } = await api.post('/admin/ai/draft-notification', {
+                        orderId: selectedOrder.id,
+                        scenario: notifScenario,
+                      })
+                      setNotifTitle(data.title || '')
+                      setNotifBody(data.message || '')
+                    } catch {
+                      setNotifStatus('Could not draft message')
+                    } finally {
+                      setNotifBusy(false)
+                    }
+                  }}
+                  className="ts-btn-secondary !min-h-[30px] !px-2.5 text-xs"
+                >
+                  {notifBusy ? 'Drafting...' : 'Draft with AI'}
+                </button>
+              </div>
+
+              <select
+                className="select !min-h-[36px] text-xs"
+                value={notifScenario}
+                onChange={(e) => setNotifScenario(e.target.value)}
+              >
+                <option value="ORDER_UPDATE">Order Status Update</option>
+                <option value="DELAY_APOLOGY">Shipping Delay Apology</option>
+                <option value="DELIVERY_FOLLOWUP">Post-Delivery Follow-up</option>
+                <option value="VIP_THANK_YOU">VIP Thank-You + Coupon</option>
+              </select>
+
+              <input
+                className="input !min-h-[36px] text-xs"
+                placeholder="Notification title..."
+                value={notifTitle}
+                onChange={(e) => setNotifTitle(e.target.value)}
+              />
+              <textarea
+                className="input text-xs"
+                rows={3}
+                placeholder="Click 'Draft with AI' or type a message..."
+                value={notifBody}
+                onChange={(e) => setNotifBody(e.target.value)}
+              />
+              <label className="flex items-center gap-2 text-xs text-[var(--text-muted)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={notifSendEmail}
+                  onChange={(e) => setNotifSendEmail(e.target.checked)}
+                  className="accent-[var(--primary)]"
+                />
+                Also send email to customer
+              </label>
+              <button
+                type="button"
+                disabled={notifBusy || !notifTitle.trim() || !notifBody.trim()}
+                onClick={async () => {
+                  setNotifBusy(true); setNotifStatus('')
+                  try {
+                    const { data } = await api.post('/admin/ai/send-notification', {
+                      orderId: selectedOrder.id,
+                      title: notifTitle,
+                      message: notifBody,
+                      sendEmail: notifSendEmail,
+                    })
+                    setNotifStatus(data.emailSent ? 'Sent in-app + email!' : 'Sent in-app notification!')
+                    setNotifTitle(''); setNotifBody('')
+                  } catch {
+                    setNotifStatus('Failed to send notification')
+                  } finally {
+                    setNotifBusy(false)
+                  }
+                }}
+                className="ts-btn-primary w-full !min-h-[36px] text-xs"
+              >
+                Send Notification
+              </button>
+              {notifStatus && (
+                <div className="text-xs font-medium text-[var(--primary)]">{notifStatus}</div>
+              )}
             </div>
 
             {/* Delete from detail panel */}

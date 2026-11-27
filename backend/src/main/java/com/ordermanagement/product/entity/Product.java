@@ -64,6 +64,15 @@ public class Product extends BaseEntity {
     @Builder.Default
     private boolean active = true;
 
+    /** Optimistic locking guard against concurrent lost updates. */
+    @Version
+    @Column(nullable = false)
+    @Builder.Default
+    private Long version = 0L;
+
+    @Column(name = "seller_id")
+    private Long sellerId;
+
     // ── Business logic ───────────────────────────────────────────────
 
     /**

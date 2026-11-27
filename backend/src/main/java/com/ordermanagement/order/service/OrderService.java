@@ -1,5 +1,6 @@
 package com.ordermanagement.order.service;
 
+import com.ordermanagement.audit.service.AuditLogService;
 import com.ordermanagement.cart.entity.Cart;
 import com.ordermanagement.cart.entity.CartItem;
 import com.ordermanagement.cart.service.CartService;
@@ -8,6 +9,10 @@ import com.ordermanagement.common.exception.BadRequestException;
 import com.ordermanagement.common.exception.InsufficientStockException;
 import com.ordermanagement.common.exception.ResourceNotFoundException;
 import com.ordermanagement.config.AppProperties;
+import com.ordermanagement.config.RabbitMQConfig;
+import com.ordermanagement.coupon.service.CouponService;
+import com.ordermanagement.notification.entity.InAppNotification;
+import com.ordermanagement.notification.repository.InAppNotificationRepository;
 import com.ordermanagement.order.dto.OrderResponse;
 import com.ordermanagement.order.dto.PlaceOrderRequest;
 import com.ordermanagement.order.dto.UpdateOrderStatusRequest;
@@ -22,6 +27,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import com.ordermanagement.notification.service.OrderEventMessage;
 import com.ordermanagement.payment.repository.PaymentRepository;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -34,6 +40,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Order lifecycle management.
@@ -77,6 +84,12 @@ public class OrderService {
     private final AppProperties appProperties;
     private final ApplicationEventPublisher eventPublisher;
     private final PaymentRepository paymentRepository;
+    private final CouponService couponService;
+    private final InvoicePdfService invoicePdfService;
+    private final InAppNotificationRepository notificationRepository;
+    private final AuditLogService auditLogService;
+    private final RabbitTemplate rabbitTemplate;
+    private final jakarta.persistence.EntityManager entityManager;
 
     // ── Customer: place order ─────────────────────────────────────────
 
@@ -98,25 +111,32 @@ public class OrderService {
             throw new BadRequestException("Cannot place order — your cart is empty");
         }
 
-        // Re-fetch with products to ensure stock data is fresh
-        List<CartItem> cartItems = cart.getItems();
+        // Sort cart items by productId ASC so all concurrent transactions acquire
+        // row locks in the exact same global order — mathematically prevents deadlocks.
+        List<CartItem> cartItems = new ArrayList<>(cart.getItems());
+        cartItems.sort(java.util.Comparator.comparing(ci -> ci.getProduct().getId()));
 
-        // 2. Atomically decrement stock for every cart item
-        //    The whole operation is inside one @Transactional so any failure
-        //    rolls back ALL decrements already applied.
+        // 2. Deadlock-free Pessimistic Write Lock (SELECT ... FOR UPDATE) + Atomic Stock Guard
+        //    Serializes competing buyers for the same hot SKU inside one @Transactional boundary;
+        //    if any item lacks sufficient stock, the entire transaction rolls back cleanly.
         List<OrderItem> orderItems = new ArrayList<>();
         BigDecimal subtotal = BigDecimal.ZERO;
         BigDecimal discountTotal = BigDecimal.ZERO;
 
         for (CartItem cartItem : cartItems) {
-            Product product = cartItem.getProduct();
+            Long productId = cartItem.getProduct().getId();
             int qty = cartItem.getQuantity();
 
-            int rowsUpdated = productRepository.decrementStockIfAvailable(product.getId(), qty);
+            Product product = productRepository.findByIdForUpdate(productId)
+                    .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
+
+            if (!product.isActive() || product.getStock() < qty) {
+                throw new InsufficientStockException(product.getName(), qty, product.getStock());
+            }
+
+            int rowsUpdated = productRepository.decrementStockIfAvailable(productId, qty);
             if (rowsUpdated == 0) {
-                // Fetch fresh stock to report accurate available quantity
-                Product fresh = productRepository.findById(product.getId()).orElseThrow();
-                throw new InsufficientStockException(fresh.getName(), qty, fresh.getStock());
+                throw new InsufficientStockException(product.getName(), qty, product.getStock());
             }
 
             BigDecimal unitPrice   = product.getEffectivePrice();
@@ -140,21 +160,40 @@ public class OrderService {
 
         BigDecimal total = subtotal.subtract(discountTotal);
 
+        // Apply optional coupon
+        String appliedCoupon = null;
+        BigDecimal couponDiscount = BigDecimal.ZERO;
+        if (request.getCouponCode() != null && !request.getCouponCode().isBlank()) {
+            couponDiscount = couponService.calculateDiscount(request.getCouponCode(), total);
+            appliedCoupon = request.getCouponCode().trim().toUpperCase();
+            total = total.subtract(couponDiscount);
+            couponService.incrementUsage(appliedCoupon);
+        }
+
+        String paymentMethod = (request.getPaymentMethod() != null && !request.getPaymentMethod().isBlank())
+                ? request.getPaymentMethod().trim().toUpperCase()
+                : "ONLINE";
+        boolean isCod = "COD".equalsIgnoreCase(paymentMethod);
+        OrderStatus initialStatus = isCod ? OrderStatus.CONFIRMED : OrderStatus.PENDING_PAYMENT;
+
         // 3. Build and persist order
         Order order = Order.builder()
                 .user(user)
                 .orderNumber(generateOrderNumber())
-                .status(OrderStatus.PENDING_PAYMENT)
+                .status(initialStatus)
                 .subtotal(subtotal)
                 .discountTotal(discountTotal)
+                .couponCode(appliedCoupon)
+                .couponDiscount(couponDiscount)
                 .total(total)
+                .paymentMethod(paymentMethod)
                 .shippingName(request.getShippingName())
                 .shippingPhone(request.getShippingPhone())
                 .shippingAddress(request.getShippingAddress())
                 .shippingCity(request.getShippingCity())
                 .shippingState(request.getShippingState())
                 .shippingPincode(request.getShippingPincode())
-                .expiresAt(LocalDateTime.now().plusMinutes(appProperties.getPayment().getWindowMinutes()))
+                .expiresAt(isCod ? null : LocalDateTime.now().plusMinutes(appProperties.getPayment().getWindowMinutes()))
                 .estimatedShipDate(LocalDate.now().plusDays(1))
                 .estimatedDeliveryDate(LocalDate.now().plusDays(4))
                 .build();
@@ -163,14 +202,13 @@ public class OrderService {
         orderItems.forEach(item -> item.setOrder(order));
         order.getItems().addAll(orderItems);
 
-        // Add the initial PENDING_PAYMENT status history entry manually
-        // (transitionTo() requires a from-status; placement is the genesis)
+        // Add the initial status history entry manually
         order.getStatusHistory().add(
                 com.ordermanagement.order.entity.OrderStatusHistory.builder()
                         .order(order)
                         .fromStatus(null)
-                        .toStatus(OrderStatus.PENDING_PAYMENT)
-                        .note("Order placed")
+                        .toStatus(initialStatus)
+                        .note(isCod ? "Order confirmed (Cash on Delivery)" : "Order placed — awaiting payment")
                         .changedBy(user.getEmail())
                         .changedAt(LocalDateTime.now())
                         .build()
@@ -181,16 +219,27 @@ public class OrderService {
         // 4. Clear cart
         cartService.clearCart(user);
 
-        log.info("Order {} placed by {} — total ₹{}", saved.getOrderNumber(),
-                user.getEmail(), total);
+        log.info("Order {} placed by {} ({}) — total ₹{}", saved.getOrderNumber(),
+                user.getEmail(), paymentMethod, total);
 
-        // 5. Publish domain event — fires AFTER_COMMIT via @TransactionalEventListener
-        //    so the delay-queue message is only sent once the order row is visible
-        //    to the expiry consumer.
-        eventPublisher.publishEvent(new OrderPlacedEvent(saved.getId()));
+        // 5. Publish delay queue only for online unpaid orders; for COD send confirmation directly
+        if (!isCod) {
+            eventPublisher.publishEvent(new OrderPlacedEvent(saved.getId()));
+        } else {
+            eventPublisher.publishEvent(new OrderEventMessage(
+                    "order.placed", saved.getId(), saved.getOrderNumber(),
+                    user.getEmail(), user.getName(), saved.getTotal()
+            ));
+        }
 
-        // NOTE: No order.placed email is sent here.
-        // Email is sent only after successful payment via order.paid event in PaymentService.
+        // In-app notification + RabbitMQ inventory & analytics events
+        notifyUser(user, "Order " + saved.getOrderNumber() + " Placed",
+                isCod ? "Your Cash on Delivery order is confirmed." : "Complete payment within 15 minutes to confirm your order.",
+                "ORDER", "/orders/" + saved.getId());
+        publishDomainEvent("inventory.updated", user.getEmail(), saved.getOrderNumber(),
+                "Stock reserved for " + saved.getItems().size() + " item(s)");
+        publishDomainEvent("analytics.order_created", user.getEmail(), saved.getOrderNumber(),
+                "New order total INR " + saved.getTotal());
 
         // 7. Return with detail (includes items + history)
         return OrderResponse.detail(saved);
@@ -271,11 +320,19 @@ public class OrderService {
         order.transitionTo(request.getStatus(), request.getNote(), adminEmail);
 
         // Update shipping & delivery timestamps and estimates
+        if (request.getTrackingNumber() != null && !request.getTrackingNumber().isBlank()) {
+            order.setTrackingNumber(request.getTrackingNumber().trim());
+        }
+        if (request.getCarrier() != null && !request.getCarrier().isBlank()) {
+            order.setCarrier(request.getCarrier().trim());
+        }
+        if (request.getEstimatedDeliveryDate() != null) {
+            order.setEstimatedDeliveryDate(request.getEstimatedDeliveryDate());
+        }
         if (request.getStatus() == OrderStatus.SHIPPED) {
             order.setShippedAt(LocalDateTime.now());
-            if (request.getEstimatedDeliveryDate() != null) {
-                order.setEstimatedDeliveryDate(request.getEstimatedDeliveryDate());
-            }
+            publishDomainEvent("shipment.created", adminEmail, order.getOrderNumber(),
+                    "Shipped via " + (order.getCarrier() != null ? order.getCarrier() : "Standard Carrier"));
         } else if (request.getStatus() == OrderStatus.DELIVERED) {
             order.setDeliveredAt(LocalDateTime.now());
         }
@@ -284,9 +341,16 @@ public class OrderService {
         if (request.getStatus() == OrderStatus.CANCELLED
                 || request.getStatus() == OrderStatus.EXPIRED) {
             restoreStock(order);
+            publishDomainEvent("inventory.updated", adminEmail, order.getOrderNumber(),
+                    "Stock restored after " + request.getStatus());
         }
 
         orderRepository.save(order);
+        auditLogService.record(adminEmail, "ORDER_STATUS_" + request.getStatus(), "ORDER",
+                order.getOrderNumber(), request.getNote() != null ? request.getNote() : "Updated to " + request.getStatus());
+        notifyUser(order.getUser(), "Order " + order.getOrderNumber() + " Updated",
+                "Your order status is now " + request.getStatus().name().replace('_', ' ') + ".",
+                "ORDER", "/orders/" + order.getId());
         log.info("Order {} → {} by admin {}", order.getOrderNumber(),
                 request.getStatus(), adminEmail);
 
@@ -334,6 +398,31 @@ public class OrderService {
         log.info("Order {} deleted by admin", order.getOrderNumber());
     }
 
+    @Transactional(readOnly = true)
+    public byte[] generateInvoiceForUser(User user, Long orderId) {
+        Order order = orderRepository.findByIdAndUserWithDetails(orderId, user)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", orderId));
+        return invoicePdfService.generateInvoice(order);
+    }
+
+    private void notifyUser(User user, String title, String message, String type, String link) {
+        try {
+            notificationRepository.save(InAppNotification.builder()
+                    .user(user).title(title).message(message).type(type).link(link).build());
+        } catch (Exception ex) {
+            log.warn("Failed to create notification: {}", ex.getMessage());
+        }
+    }
+
+    private void publishDomainEvent(String routingKey, String actor, String entityId, String details) {
+        try {
+            rabbitTemplate.convertAndSend(RabbitMQConfig.ORDER_EVENTS_EXCHANGE, routingKey,
+                    Map.of("actor", actor, "entityId", entityId, "details", details));
+        } catch (Exception ex) {
+            log.warn("Failed to publish RabbitMQ event {}: {}", routingKey, ex.getMessage());
+        }
+    }
+
     // ── Helpers ───────────────────────────────────────────────────────
 
     /**
@@ -349,15 +438,14 @@ public class OrderService {
     }
 
     /**
-     * Generates a unique order number: ORD-YYYYMMDD-NNNN
-     * e.g. ORD-20241015-0001
-     * Not perfectly collision-safe for massive concurrent load, but
-     * the DB UNIQUE constraint on order_number is the safety net.
+     * Generates a collision-free order number using PostgreSQL sequence `order_number_seq`:
+     * ORD-YYYYMMDD-NNNNNN — safe under arbitrarily high concurrent checkouts.
      */
     private String generateOrderNumber() {
         String datePart = LocalDateTime.now().format(ORDER_DATE_FMT);
-        String prefix = "ORD-" + datePart + "-";
-        long count = orderRepository.countByOrderNumberStartingWith(prefix);
-        return prefix + String.format("%04d", count + 1);
+        Number seq = (Number) entityManager
+                .createNativeQuery("SELECT nextval('order_number_seq')")
+                .getSingleResult();
+        return "ORD-" + datePart + "-" + String.format("%06d", seq.longValue());
     }
 }

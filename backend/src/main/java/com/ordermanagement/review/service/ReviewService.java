@@ -30,25 +30,24 @@ import java.util.Map;
  * Business logic for product reviews and ratings.
  *
  * Rules:
- *  - Only customers with a DELIVERED order containing the product can review it
- *  - One review per user per product (edit is allowed via upsert)
- *  - Rating 1–5 stars, optional title + body
+ * - Only customers with a DELIVERED order containing the product can review it
+ * - One review per user per product (edit is allowed via upsert)
+ * - Rating 1–5 stars, optional title + body
  */
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class ReviewService {
 
-    private final ReviewRepository  reviewRepository;
-    private final OrderRepository   orderRepository;
+    private final ReviewRepository reviewRepository;
+    private final OrderRepository orderRepository;
     private final ProductRepository productRepository;
-    private final EntityManager     em;
+    private final EntityManager em;
 
     private static final List<OrderStatus> ELIGIBLE_STATUSES = List.of(
             OrderStatus.DELIVERED, OrderStatus.RETURN_REQUESTED,
             OrderStatus.RETURN_APPROVED, OrderStatus.RETURN_REJECTED,
-            OrderStatus.PICKUP_COMPLETED, OrderStatus.REFUNDED
-    );
+            OrderStatus.PICKUP_COMPLETED, OrderStatus.REFUNDED);
 
     // ── Submit or update review ───────────────────────────────────────────────
 
@@ -57,8 +56,26 @@ public class ReviewService {
         Product product = productRepository.findById(productId)
                 .orElseThrow(() -> new ResourceNotFoundException("Product", productId));
 
-        Order order = orderRepository.findById(dto.orderId())
-                .orElseThrow(() -> new ResourceNotFoundException("Order", dto.orderId()));
+        ProductReview existing = reviewRepository
+                .findByUserIdAndProductId(user.getId(), productId)
+                .orElse(null);
+
+        Long resolvedOrderId = dto.orderId();
+        if (resolvedOrderId == null || resolvedOrderId <= 0) {
+            if (existing != null && existing.getOrder() != null) {
+                resolvedOrderId = existing.getOrder().getId();
+            } else {
+                List<Long> eligible = getEligibleOrderIds(productId, user.getId());
+                if (eligible.isEmpty()) {
+                    throw new BadRequestException("You can only review products from DELIVERED orders");
+                }
+                resolvedOrderId = eligible.get(0);
+            }
+        }
+
+        final Long targetOrderId = resolvedOrderId;
+        Order order = orderRepository.findById(targetOrderId)
+                .orElseThrow(() -> new ResourceNotFoundException("Order", targetOrderId));
 
         if (!order.getUser().getId().equals(user.getId())) {
             throw new BadRequestException("Order does not belong to you");
@@ -76,13 +93,12 @@ public class ReviewService {
         }
 
         // Upsert — allow editing existing review
-        ProductReview review = reviewRepository
-                .findByUserIdAndProductId(user.getId(), productId)
-                .orElse(ProductReview.builder()
+        ProductReview review = existing != null ? existing
+                : ProductReview.builder()
                         .product(product)
                         .user(user)
                         .order(order)
-                        .build());
+                        .build();
 
         review.setRating(dto.rating().shortValue());
         review.setTitle(dto.title());
@@ -107,12 +123,13 @@ public class ReviewService {
 
     @Transactional(readOnly = true)
     public ProductRatingSummary getRatingSummary(Long productId) {
-        double avg   = reviewRepository.avgRatingByProductId(productId);
-        long   total = reviewRepository.countByProductId(productId);
+        double avg = reviewRepository.avgRatingByProductId(productId);
+        long total = reviewRepository.countByProductId(productId);
 
         List<Object[]> dist = reviewRepository.ratingDistributionByProductId(productId);
         Map<Integer, Long> distribution = new LinkedHashMap<>();
-        for (int i = 5; i >= 1; i--) distribution.put(i, 0L);
+        for (int i = 5; i >= 1; i--)
+            distribution.put(i, 0L);
         for (Object[] row : dist) {
             distribution.put(((Number) row[0]).intValue(), (Long) row[1]);
         }
@@ -173,7 +190,8 @@ public class ReviewService {
 
     @Transactional(readOnly = true)
     public Map<Long, ProductRatingSummary> getBulkSummaries(List<Long> productIds) {
-        if (productIds == null || productIds.isEmpty()) return Map.of();
+        if (productIds == null || productIds.isEmpty())
+            return Map.of();
         Map<Long, ProductRatingSummary> result = new java.util.LinkedHashMap<>();
         for (Long pid : productIds) {
             result.put(pid, getRatingSummary(pid));

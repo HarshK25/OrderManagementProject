@@ -33,6 +33,16 @@ export default function AdminReturnsPage() {
   const [adminNote, setAdminNote] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [msg, setMsg]           = useState('')
+  const [aiAnalysis, setAiAnalysis] = useState(null)
+  const [aiLoading, setAiLoading]   = useState(false)
+
+  const runAiAnalysis = useCallback(() => {
+    setAiLoading(true)
+    api.get('/admin/ai/returns-analysis')
+      .then(({ data }) => setAiAnalysis(data))
+      .catch(() => {})
+      .finally(() => setAiLoading(false))
+  }, [])
 
   const fetchReturns = useCallback(() => {
     setLoading(true)
@@ -42,7 +52,7 @@ export default function AdminReturnsPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  useEffect(() => { fetchReturns() }, [fetchReturns])
+  useEffect(() => { fetchReturns(); runAiAnalysis() }, [fetchReturns, runAiAnalysis])
 
   const openModal = (ret, act) => {
     setSelected(ret)
@@ -108,6 +118,82 @@ export default function AdminReturnsPage() {
                 <div style={{ fontSize: '.85rem', color: 'var(--text-muted)' }}>{s.label}</div>
               </div>
             ))}
+          </div>
+
+          {/* #7 AI Return-Reason Analyzer & Risk Flagging */}
+          <div className="ts-card p-5 mb-6 space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border)] pb-3">
+              <div>
+                <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--primary)]">
+                  AI Operations Intelligence
+                </div>
+                <h3 className="text-base font-semibold text-[var(--text)]">
+                  Return-Reason Analyzer &amp; Risk Flagging
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={runAiAnalysis}
+                disabled={aiLoading}
+                className="ts-btn-secondary !min-h-[34px] !px-3 text-xs"
+              >
+                {aiLoading ? 'Analyzing...' : 'Refresh AI Analysis'}
+              </button>
+            </div>
+
+            {aiAnalysis ? (
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div className="lg:col-span-5 p-4 rounded-xl bg-[var(--bg)] border border-[var(--border)] space-y-3">
+                  <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                    AI Summary
+                  </div>
+                  <div className="text-xs sm:text-sm text-[var(--text)] whitespace-pre-line leading-relaxed">
+                    {aiAnalysis.aiSummary}
+                  </div>
+                </div>
+
+                <div className="lg:col-span-3 p-4 rounded-xl bg-[var(--bg)] border border-[var(--border)] space-y-2.5">
+                  <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Reason Clusters
+                  </div>
+                  {Object.entries(aiAnalysis.clusters || {}).map(([label, count]) => (
+                    <div key={label} className="flex items-center justify-between text-xs">
+                      <span className="text-[var(--text)] truncate pr-2">{label}</span>
+                      <span className="font-mono font-semibold text-[var(--primary)] tabular">{count}</span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="lg:col-span-4 p-4 rounded-xl bg-[var(--bg)] border border-[var(--border)] space-y-2.5">
+                  <div className="font-mono text-[11px] uppercase tracking-wider text-[var(--text-muted)]">
+                    Flagged Risk Accounts ({aiAnalysis.flaggedAccounts?.length || 0})
+                  </div>
+                  {!aiAnalysis.flaggedAccounts || aiAnalysis.flaggedAccounts.length === 0 ? (
+                    <div className="text-xs text-[var(--text-muted)]">No unusual return or cancellation patterns detected.</div>
+                  ) : (
+                    <div className="space-y-2 max-h-36 overflow-y-auto">
+                      {aiAnalysis.flaggedAccounts.map((acc) => (
+                        <div key={acc.userId} className="p-2 rounded-lg bg-[var(--surface)] border border-[var(--border)] text-xs">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="font-semibold text-[var(--text)] truncate">{acc.name}</span>
+                            <span className={`font-mono text-[10px] px-1.5 py-0.5 rounded border ${
+                              acc.riskLevel === 'HIGH'
+                                ? 'border-[var(--danger)] text-[var(--danger)]'
+                                : 'border-amber-500 text-amber-600 dark:text-amber-400'
+                            }`}>
+                              {acc.riskLevel}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-[var(--text-muted)] mt-0.5">{acc.flagReason}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="text-xs text-[var(--text-muted)]">Loading AI returns analysis...</div>
+            )}
           </div>
 
           {/* Pending */}

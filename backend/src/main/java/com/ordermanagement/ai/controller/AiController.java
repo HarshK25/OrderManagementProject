@@ -35,9 +35,11 @@ import java.util.Map;
 public class AiController {
 
     private final GeminiService geminiService;
+    private final com.ordermanagement.ai.service.AiInsightsService aiInsightsService;
+    private final com.ordermanagement.ai.service.AiCommerceService aiCommerceService;
 
     @PostMapping("/generate-description")
-    @Operation(summary = "Generate a product description using Gemini AI (admin only)")
+    @Operation(summary = "Generate a product description using AI (admin only)")
     public ResponseEntity<?> generateDescription(
             @Valid @RequestBody GenerateDescriptionRequest request) {
         try {
@@ -48,6 +50,37 @@ public class AiController {
             return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
                     .body(Map.of("message", ex.getMessage() != null ? ex.getMessage() : "AI service error"));
         }
+    }
+
+    @PostMapping("/assistant")
+    @Operation(summary = "Ask the Admin AI Insights Assistant about live orders, sales, and inventory")
+    public ResponseEntity<Map<String, Object>> askAssistant(@RequestBody Map<String, String> body) {
+        String question = body.getOrDefault("question", "Summarize store performance");
+        return ResponseEntity.ok(aiInsightsService.askAssistant(question));
+    }
+
+    @GetMapping("/returns-analysis")
+    @Operation(summary = "Cluster return reasons and detect repeat cancellation/return risk accounts")
+    public ResponseEntity<Map<String, Object>> analyzeReturns() {
+        return ResponseEntity.ok(aiCommerceService.analyzeReturnsAndRisk());
+    }
+
+    @PostMapping("/draft-notification")
+    @Operation(summary = "Draft a personalized AI customer notification/email for an order")
+    public ResponseEntity<Map<String, Object>> draftNotification(@RequestBody Map<String, Object> body) {
+        Long orderId = Long.valueOf(body.get("orderId").toString());
+        String scenario = body.getOrDefault("scenario", "ORDER_UPDATE").toString();
+        return ResponseEntity.ok(aiCommerceService.draftCustomerNotification(orderId, scenario));
+    }
+
+    @PostMapping("/send-notification")
+    @Operation(summary = "Send an AI-drafted in-app notification (and optional email) to the order's customer")
+    public ResponseEntity<Map<String, Object>> sendNotification(@RequestBody Map<String, Object> body) {
+        Long orderId = Long.valueOf(body.get("orderId").toString());
+        String title = body.getOrDefault("title", "").toString();
+        String message = body.getOrDefault("message", "").toString();
+        boolean sendEmail = Boolean.TRUE.equals(body.get("sendEmail"));
+        return ResponseEntity.ok(aiCommerceService.sendCustomerNotification(orderId, title, message, sendEmail));
     }
 }
 

@@ -1,5 +1,6 @@
 package com.ordermanagement.common.dto;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -42,6 +43,10 @@ public class PagedResponse<T> {
     /** True if this is the last page. */
     private boolean last;
 
+    /** Set when a misspelled search query was auto-corrected to a matching term. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private String correctedQuery;
+
     /**
      * Build from a Spring {@link Page}.
      * The content list should already be mapped to DTOs before calling this.
@@ -53,7 +58,8 @@ public class PagedResponse<T> {
                 page.getSize(),
                 page.getTotalElements(),
                 page.getTotalPages(),
-                page.isLast()
+                page.isLast(),
+                null
         );
     }
 }

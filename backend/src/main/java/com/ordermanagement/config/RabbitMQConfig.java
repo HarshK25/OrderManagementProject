@@ -81,6 +81,12 @@ public class RabbitMQConfig {
     // Routing key pattern for all order events
     public static final String ORDER_EVENTS_ROUTING_KEY = "order.*";
 
+    // Domain event queues (Payment, Inventory, Shipment, Analytics/Refund)
+    public static final String PAYMENT_EVENTS_QUEUE     = "payment.events.queue";
+    public static final String INVENTORY_EVENTS_QUEUE   = "inventory.events.queue";
+    public static final String SHIPMENT_EVENTS_QUEUE    = "shipment.events.queue";
+    public static final String ANALYTICS_EVENTS_QUEUE   = "analytics.events.queue";
+
     // Header name used to track retry count
     public static final String RETRY_COUNT_HEADER    = "x-retry-count";
 
@@ -253,5 +259,46 @@ public class RabbitMQConfig {
         args.put("x-message-ttl", 60_000L);
         args.put("x-dead-letter-exchange", ORDER_EVENTS_EXCHANGE);
         return new Queue(RETRY_60S_QUEUE, true, false, false, args);
+    }
+
+    // ═══════════════════════════════════════════════════════════════════
+    // DOMAIN EVENT QUEUES (Payment, Inventory, Shipment, Analytics/Refund)
+    // ═══════════════════════════════════════════════════════════════════
+
+    private Queue durableQueueWithDlq(String name) {
+        Map<String, Object> args = new HashMap<>();
+        args.put("x-dead-letter-exchange", EMAIL_DLX);
+        args.put("x-dead-letter-routing-key", EMAIL_DLQ);
+        return new Queue(name, true, false, false, args);
+    }
+
+    @Bean public Queue paymentEventsQueue()   { return durableQueueWithDlq(PAYMENT_EVENTS_QUEUE); }
+    @Bean public Queue inventoryEventsQueue() { return durableQueueWithDlq(INVENTORY_EVENTS_QUEUE); }
+    @Bean public Queue shipmentEventsQueue()  { return durableQueueWithDlq(SHIPMENT_EVENTS_QUEUE); }
+    @Bean public Queue analyticsEventsQueue() { return durableQueueWithDlq(ANALYTICS_EVENTS_QUEUE); }
+
+    @Bean
+    public Binding paymentEventsBinding() {
+        return BindingBuilder.bind(paymentEventsQueue()).to(orderEventsExchange()).with("payment.*");
+    }
+
+    @Bean
+    public Binding inventoryEventsBinding() {
+        return BindingBuilder.bind(inventoryEventsQueue()).to(orderEventsExchange()).with("inventory.*");
+    }
+
+    @Bean
+    public Binding shipmentEventsBinding() {
+        return BindingBuilder.bind(shipmentEventsQueue()).to(orderEventsExchange()).with("shipment.*");
+    }
+
+    @Bean
+    public Binding analyticsEventsBinding() {
+        return BindingBuilder.bind(analyticsEventsQueue()).to(orderEventsExchange()).with("analytics.*");
+    }
+
+    @Bean
+    public Binding refundEventsBinding() {
+        return BindingBuilder.bind(analyticsEventsQueue()).to(orderEventsExchange()).with("refund.*");
     }
 }

@@ -77,6 +77,19 @@ public class OrderController {
         return orderService.cancelOrder(user, id);
     }
 
+    @GetMapping(value = "/api/orders/{id}/invoice", produces = "application/pdf")
+    @Operation(summary = "Download PDF invoice for an order (own orders only)")
+    public org.springframework.http.ResponseEntity<byte[]> downloadMyInvoice(
+            @AuthenticationPrincipal User user,
+            @PathVariable Long id) {
+        byte[] pdf = orderService.generateInvoiceForUser(user, id);
+        return org.springframework.http.ResponseEntity.ok()
+                .header(org.springframework.http.HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=invoice-" + id + ".pdf")
+                .contentType(org.springframework.http.MediaType.APPLICATION_PDF)
+                .body(pdf);
+    }
+
     // ── Admin ─────────────────────────────────────────────────────────
 
     @GetMapping("/api/admin/orders")

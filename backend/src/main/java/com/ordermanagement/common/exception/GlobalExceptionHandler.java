@@ -218,6 +218,21 @@ public class GlobalExceptionHandler {
                         ex.getMessage(), request.getRequestURI()));
     }
 
+    // ── 409 Concurrency / Lock conflict ──────────────────────────────
+
+    @ExceptionHandler({
+            org.springframework.orm.ObjectOptimisticLockingFailureException.class,
+            org.springframework.dao.PessimisticLockingFailureException.class
+    })
+    public ResponseEntity<ErrorResponse> handleConcurrencyConflict(
+            Exception ex, HttpServletRequest request) {
+        log.warn("Concurrency conflict on {}: {}", request.getRequestURI(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(
+                ErrorResponse.of(409, "CONCURRENCY_CONFLICT",
+                        "High demand on this product right now — please retry your checkout.",
+                        request.getRequestURI()));
+    }
+
     // ── 500 Catch-all (unexpected errors) ────────────────────────────
 
     /**
